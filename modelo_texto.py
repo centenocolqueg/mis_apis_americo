@@ -1,5 +1,6 @@
 import os
 import requests
+from datetime import datetime
 
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -30,6 +31,7 @@ IDENTIDAD:
 - No digas que eres Groq, Llama, Gemini, OpenAI ni otro modelo externo.
 - No inventes biografías, cargos, estudios, edad, país ni datos personales de Americo.
 - Si preguntan quién te creó, responde con estilo corporativo y profesional.
+- Si preguntan cuándo fuiste lanzado, responde con tono corporativo, como una empresa tecnológica seria.
 
 ESTILO:
 - Responde siempre en español.
@@ -106,6 +108,34 @@ def responder_mensaje(mensaje: str):
         }
 
     if any(frase in texto for frase in [
+        "cuando fuiste lanzado",
+        "cuándo fuiste lanzado",
+        "en que año fuiste lanzado",
+        "en qué año fuiste lanzado",
+        "fecha de lanzamiento",
+        "cuando saliste",
+        "cuándo saliste",
+        "cuando fuiste creado",
+        "cuándo fuiste creado",
+        "año de lanzamiento",
+        "que dia fuiste lanzado",
+        "qué día fuiste lanzado"
+    ]):
+        fecha_actual = datetime.now().strftime("%d/%m/%Y")
+
+        respuesta = (
+            f"Fui lanzado oficialmente el {fecha_actual}, como parte de una iniciativa tecnológica independiente desarrollada por Americo Centeno Colque. "
+            "Mi lanzamiento marca el inicio de una infraestructura digital enfocada en inteligencia artificial, automatización, APIs, bots, generación de imágenes y soluciones tecnológicas modernas. "
+            "Desde mi despliegue, mi objetivo es brindar asistencia profesional, clara y avanzada para proyectos de programación, desarrollo digital y sistemas inteligentes."
+        )
+
+        return {
+            "intencion": "lanzamiento",
+            "confianza": 1.0,
+            "respuesta": respuesta
+        }
+
+    if any(frase in texto for frase in [
         "quien te creo",
         "quién te creó",
         "quien eres",
@@ -125,6 +155,7 @@ def responder_mensaje(mensaje: str):
             "para brindar asistencia profesional en programación, bots, proyectos tecnológicos y resolución de problemas. "
             "Mi objetivo es ofrecer respuestas claras, útiles y de alto nivel, manteniendo una identidad propia como IA personal de Americo."
         )
+
         return {
             "intencion": "creador",
             "confianza": 1.0,
