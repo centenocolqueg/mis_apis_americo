@@ -1,21 +1,22 @@
 import os
-from google import genai
+import requests
 
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-MODELOS_GEMINI = [
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-8b"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+MODELOS_GROQ = [
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-20b"
 ]
 
 
-def responder_con_gemini(mensaje: str) -> str:
-    if not GEMINI_API_KEY:
+def responder_con_groq(mensaje: str) -> str:
+    if not GROQ_API_KEY:
         return (
-            "Todavía no tengo GEMINI_API_KEY configurado en Render. "
+            "Todavía no tengo GROQ_API_KEY configurado en Render. "
             "Puedo responder básico, pero para ser más inteligente necesito esa clave."
         )
 
@@ -27,7 +28,7 @@ Reglas:
 - Responde claro, ordenado y útil.
 - Ayuda especialmente con Python, APIs, FastAPI, Telegram, Render, bots, errores, comandos y programación.
 - Si el usuario insulta, responde tranquilo y ayuda igual.
-- No digas que eres Gemini.
+- No digas que eres Groq ni Llama.
 - Di que eres la Mini IA de Americo.
 - Si das código, que sea fácil de copiar.
 - Si el usuario pide pasos, responde paso por paso.
@@ -35,34 +36,49 @@ Reglas:
 - Responde completo, pero no demasiado largo.
 """
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-        for modelo in MODELOS_GEMINI:
-            try:
-                respuesta = client.models.generate_content(
-                    model=modelo,
-                    contents=f"{prompt_sistema}\n\nUsuario: {mensaje}\nRespuesta:"
-                )
+    ultimo_error = ""
 
-                if respuesta.text:
-                    return respuesta.text.strip()
+    for modelo in MODELOS_GROQ:
+        try:
+            payload = {
+                "model": modelo,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": prompt_sistema
+                    },
+                    {
+                        "role": "user",
+                        "content": mensaje
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 700
+            }
 
-            except Exception as error:
-                error_texto = str(error)
+            response = requests.post(
+                GROQ_URL,
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
 
-                if "429" in error_texto or "RESOURCE_EXHAUSTED" in error_texto:
-                    continue
+            data = response.json()
 
-                continue
+            if response.status_code == 200:
+                return data["choices"][0]["message"]["content"].strip()
 
-        return (
-            "La IA está conectada, pero Gemini no me dejó responder por límite de cuota. "
-            "Espera un momento y vuelve a intentar. Si sigue igual, hay que crear otra clave de Gemini."
-        )
+            ultimo_error = str(data)
 
-    except Exception as error:
-        return f"Tuve un error consultando la IA: {str(error)}"
+        except Exception as error:
+            ultimo_error = str(error)
+
+    return f"No pude responder con la IA en este momento. Error: {ultimo_error}"
 
 
 def responder_mensaje(mensaje: str):
@@ -98,10 +114,10 @@ def responder_mensaje(mensaje: str):
             "respuesta": respuesta
         }
 
-    respuesta = responder_con_gemini(mensaje)
+    respuesta = responder_con_groq(mensaje)
 
     return {
-        "intencion": "gemini_ia",
+        "intencion": "groq_ia",
         "confianza": 0.95,
         "respuesta": respuesta
     }
