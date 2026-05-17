@@ -552,9 +552,32 @@ async def telegram_webhook(update: dict):
     if user_id == str(ADMIN_CHAT_ID):
         partes = texto.split()
 
-        if len(partes) == 3 and partes[0] == "/activar":
-            ok, msg = activar_usuario(partes[1], partes[2])
+        if partes[0] == "/activar":
+            if len(partes) != 3:
+                telegram_enviar_mensaje(
+                    chat_id,
+                    "Uso correcto:\n/activar ID plan\n\nEjemplo:\n/activar 123456789 premium"
+                )
+                return {"ok": True}
+
+            usuario_id = partes[1]
+            plan = partes[2].lower().strip()
+
+            ok, msg = activar_usuario(usuario_id, plan)
+
             telegram_enviar_mensaje(chat_id, msg)
+
+            if ok:
+                nombre_plan = PLANES.get(plan, {}).get("nombre", plan.upper())
+
+                telegram_enviar_mensaje(
+                    usuario_id,
+                    "✅ Tu plan fue activado correctamente.\n\n"
+                    f"Plan activo: {nombre_plan}\n\n"
+                    "Ya puedes usar AMERICO IA CORPORATION según los beneficios de tu plan.\n\n"
+                    "Puedes escribir /mi_plan para ver tu estado."
+                )
+
             return {"ok": True}
 
         if len(partes) == 2 and partes[0] == "/bloquear":
