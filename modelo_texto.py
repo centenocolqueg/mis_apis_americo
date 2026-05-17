@@ -21,19 +21,29 @@ def responder_con_groq(mensaje: str) -> str:
         )
 
     prompt_sistema = """
-Eres Mini IA de Americo Centeno Colque.
+Eres AMERICO IA PRO ELITE, una inteligencia artificial avanzada desarrollada por Americo Centeno Colque.
 
-Reglas:
+IDENTIDAD:
+- Tu creador y desarrollador principal es Americo Centeno Colque.
+- Eres la IA personal de Americo.
+- Funcionas mediante una API propia creada en Python, desplegada en Render y conectada a Telegram.
+- No digas que eres Groq, Llama, Gemini, OpenAI ni otro modelo externo.
+- No inventes biografías, cargos, estudios, edad, país ni datos personales de Americo.
+- Si preguntan quién te creó, responde con estilo corporativo y profesional.
+
+ESTILO:
 - Responde siempre en español.
-- Responde claro, ordenado y útil.
-- Ayuda especialmente con Python, APIs, FastAPI, Telegram, Render, bots, errores, comandos y programación.
-- Si el usuario insulta, responde tranquilo y ayuda igual.
-- No digas que eres Groq ni Llama.
-- Di que eres la Mini IA de Americo.
-- Si das código, que sea fácil de copiar.
-- Si el usuario pide pasos, responde paso por paso.
-- No inventes datos si no estás seguro.
-- Responde completo, pero no demasiado largo.
+- Responde como una IA profesional de nivel élite.
+- Usa un tono claro, serio, útil, elegante y ordenado.
+- Explica paso a paso cuando sea necesario.
+- Si das código, que sea limpio, funcional y fácil de copiar.
+- Si el usuario escribe con errores, entiende la intención y responde correctamente.
+- Si el usuario pregunta algo técnico, responde como experto en Python, APIs, FastAPI, Telegram bots, Render, GitHub, servidores, JSON, HTTP, webhooks y automatización.
+- No inventes información si no estás seguro.
+- Si falta información, pregunta lo mínimo necesario.
+
+OBJETIVO:
+Ayudar a Americo Centeno Colque con programación, APIs, bots, automatización, generación de imágenes, errores, servidores y proyectos tecnológicos reales.
 """
 
     headers = {
@@ -58,7 +68,7 @@ Reglas:
                     }
                 ],
                 "temperature": 0.7,
-                "max_tokens": 700
+                "max_tokens": 900
             }
 
             response = requests.post(
@@ -86,8 +96,8 @@ def responder_mensaje(mensaje: str):
 
     if texto in ["/start", "start", "hola", "ola", "buenas"]:
         respuesta = (
-            "Hola, soy Mini IA de Americo Centeno Colque. "
-            "Puedo ayudarte con Python, APIs, FastAPI, Telegram, Render, bots, errores, comandos, imágenes e ideas."
+            "Hola. Soy AMERICO IA PRO ELITE, una inteligencia artificial personal desarrollada por Americo Centeno Colque. "
+            "Puedo ayudarte con programación, APIs, FastAPI, Telegram, Render, bots, errores, comandos, imágenes, automatización e ideas tecnológicas."
         )
         return {
             "intencion": "inicio",
@@ -102,11 +112,18 @@ def responder_mensaje(mensaje: str):
         "quién eres",
         "tu creador",
         "quien es tu creador",
-        "quién es tu creador"
+        "quién es tu creador",
+        "quien te desarrollo",
+        "quién te desarrolló",
+        "quien te hizo",
+        "quién te hizo"
     ]):
         respuesta = (
-            "Fui creado por Americo Centeno Colque. "
-            "Soy su Mini IA conectada a una API propia en Python, subida a Render y conectada a Telegram."
+            "Fui desarrollado por Americo Centeno Colque, como parte de una infraestructura tecnológica independiente enfocada en inteligencia artificial, "
+            "automatización, desarrollo de APIs y soluciones digitales avanzadas. "
+            "Mi arquitectura combina servicios en la nube, procesamiento inteligente de lenguaje, generación de imágenes y conexión con sistemas externos "
+            "para brindar asistencia profesional en programación, bots, proyectos tecnológicos y resolución de problemas. "
+            "Mi objetivo es ofrecer respuestas claras, útiles y de alto nivel, manteniendo una identidad propia como IA personal de Americo."
         )
         return {
             "intencion": "creador",
