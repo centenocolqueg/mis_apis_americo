@@ -1,8 +1,16 @@
-import os
+
+    }import os
 from google import genai
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+MODELOS_GEMINI = [
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+]
 
 
 def responder_con_gemini(mensaje: str) -> str:
@@ -12,10 +20,7 @@ def responder_con_gemini(mensaje: str) -> str:
             "Puedo responder básico, pero para ser más inteligente necesito esa clave."
         )
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-
-        prompt_sistema = """
+    prompt_sistema = """
 Eres Mini IA de Americo Centeno Colque.
 
 Reglas:
@@ -28,17 +33,36 @@ Reglas:
 - Si das código, que sea fácil de copiar.
 - Si el usuario pide pasos, responde paso por paso.
 - No inventes datos si no estás seguro.
+- Responde completo, pero no demasiado largo.
 """
 
-        respuesta = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=f"{prompt_sistema}\n\nUsuario: {mensaje}\nRespuesta:"
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        ultimo_error = ""
+
+        for modelo in MODELOS_GEMINI:
+            try:
+                respuesta = client.models.generate_content(
+                    model=modelo,
+                    contents=f"{prompt_sistema}\n\nUsuario: {mensaje}\nRespuesta:"
+                )
+
+                if respuesta.text:
+                    return respuesta.text.strip()
+
+            except Exception as error:
+                ultimo_error = str(error)
+
+                if "429" in ultimo_error or "RESOURCE_EXHAUSTED" in ultimo_error:
+                    continue
+
+                continue
+
+        return (
+            "La IA está conectada, pero Gemini no me dejó responder por límite de cuota. "
+            "Espera un momento y vuelve a intentar. Si sigue igual, hay que crear otra clave o activar otro modelo."
         )
-
-        if respuesta.text:
-            return respuesta.text.strip()
-
-        return "No pude generar una respuesta en este momento."
 
     except Exception as error:
         return f"Tuve un error consultando la IA: {str(error)}"
