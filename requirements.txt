@@ -4,3 +4,4 @@ pydantic
 pillow
 joblib
 requests
+google-genai
