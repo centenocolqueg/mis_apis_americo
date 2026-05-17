@@ -14,7 +14,7 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="APIs propias de Americo",
     description="API de texto, API de imagen y bot de Telegram en Python.",
-    version="1.2.0",
+    version="1.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -62,7 +62,7 @@ def cargar_fuente(tamano: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-def cortar_texto(texto: str, max_caracteres: int = 28):
+def cortar_texto(texto: str, max_caracteres: int = 26):
     palabras = texto.split()
     lineas = []
     linea_actual = ""
@@ -80,177 +80,150 @@ def cortar_texto(texto: str, max_caracteres: int = 28):
     if linea_actual:
         lineas.append(linea_actual)
 
-    return lineas[:8]
+    return lineas[:6]
 
 
-def crear_degradado(ancho: int, alto: int):
-    imagen = Image.new("RGB", (ancho, alto))
+def crear_fondo(ancho: int, alto: int):
+    imagen = Image.new("RGB", (ancho, alto), (10, 25, 60))
+    draw = ImageDraw.Draw(imagen)
 
-    for y in range(alto):
-        r = int(10 + (y / alto) * 18)
-        g = int(18 + (y / alto) * 22)
-        b = int(45 + (y / alto) * 85)
+    for y in range(0, alto, 40):
+        color = (20, 60, 120)
+        draw.line((0, y, ancho, y), fill=color, width=1)
 
-        for x in range(ancho):
-            imagen.putpixel((x, y), (r, g, b))
+    for x in range(0, ancho, 40):
+        color = (20, 60, 120)
+        draw.line((x, 0, x, alto), fill=color, width=1)
+
+    for x in range(20, ancho, 90):
+        draw.ellipse((x, 30, x + 5, 35), fill=(0, 220, 255))
+
+    for y in range(80, alto, 100):
+        draw.ellipse((30, y, 36, y + 6), fill=(0, 220, 255))
 
     return imagen
 
 
-def dibujar_detalles_fondo(draw, ancho, alto):
-    color = (50, 120, 220)
-
-    for x in range(50, ancho, 120):
-        draw.line([(x, 0), (x + 50, 80)], fill=color, width=1)
-
-    for y in range(80, alto, 120):
-        draw.line([(0, y), (100, y + 40)], fill=color, width=1)
-
-    for x in range(80, ancho, 160):
-        draw.ellipse((x, 90, x + 8, 98), fill=(120, 200, 255))
-
-    for y in range(140, alto, 170):
-        draw.ellipse((60, y, 68, y + 8), fill=(120, 200, 255))
-
-
-def dibujar_robot(draw, ancho, alto):
-    centro_x = ancho // 2
-
-    cabeza_w = 170
-    cabeza_h = 130
-    cabeza_x1 = centro_x - cabeza_w // 2
-    cabeza_y1 = 140
-    cabeza_x2 = cabeza_x1 + cabeza_w
-    cabeza_y2 = cabeza_y1 + cabeza_h
-
-    draw.line((centro_x, cabeza_y1 - 35, centro_x, cabeza_y1), fill=(180, 230, 255), width=6)
-    draw.ellipse((centro_x - 12, cabeza_y1 - 52, centro_x + 12, cabeza_y1 - 28), fill=(255, 80, 80))
-
-    draw.rounded_rectangle(
-        (cabeza_x1, cabeza_y1, cabeza_x2, cabeza_y2),
-        radius=25,
-        fill=(185, 195, 210),
-        outline=(240, 245, 255),
-        width=4
-    )
-
-    draw.ellipse((cabeza_x1 + 35, cabeza_y1 + 38, cabeza_x1 + 70, cabeza_y1 + 73), fill=(0, 255, 255))
-    draw.ellipse((cabeza_x2 - 70, cabeza_y1 + 38, cabeza_x2 - 35, cabeza_y1 + 73), fill=(0, 255, 255))
-
-    draw.rounded_rectangle(
-        (cabeza_x1 + 40, cabeza_y2 - 42, cabeza_x2 - 40, cabeza_y2 - 18),
-        radius=8,
-        fill=(60, 80, 100)
-    )
-
-    for x in range(cabeza_x1 + 48, cabeza_x2 - 40, 18):
-        draw.line((x, cabeza_y2 - 40, x, cabeza_y2 - 20), fill=(190, 230, 255), width=2)
-
-    draw.rectangle((centro_x - 18, cabeza_y2, centro_x + 18, cabeza_y2 + 26), fill=(160, 170, 185))
-
-    cuerpo_x1 = centro_x - 115
-    cuerpo_y1 = cabeza_y2 + 28
-    cuerpo_x2 = centro_x + 115
-    cuerpo_y2 = cuerpo_y1 + 170
-
-    draw.rounded_rectangle(
-        (cuerpo_x1, cuerpo_y1, cuerpo_x2, cuerpo_y2),
-        radius=30,
-        fill=(120, 135, 155),
-        outline=(230, 240, 255),
-        width=4
-    )
-
-    draw.rounded_rectangle(
-        (centro_x - 55, cuerpo_y1 + 28, centro_x + 55, cuerpo_y1 + 88),
-        radius=15,
-        fill=(25, 45, 80),
-        outline=(120, 220, 255),
-        width=3
-    )
-
-    draw.text(
-        (centro_x - 42, cuerpo_y1 + 45),
-        "PY API",
-        fill=(140, 255, 255),
-        font=cargar_fuente(22, bold=True)
-    )
-
-    for i, color in enumerate([(255, 90, 90), (255, 210, 70), (80, 255, 120)]):
-        x = centro_x - 28 + i * 28
-        draw.ellipse((x, cuerpo_y1 + 110, x + 16, cuerpo_y1 + 126), fill=color)
-
-    brazo_y = cuerpo_y1 + 55
-
-    draw.line((cuerpo_x1, brazo_y, cuerpo_x1 - 95, brazo_y + 20), fill=(170, 180, 195), width=18)
-    draw.line((cuerpo_x2, brazo_y, cuerpo_x2 + 95, brazo_y + 20), fill=(170, 180, 195), width=18)
-
-    draw.ellipse((cuerpo_x1 - 112, brazo_y + 5, cuerpo_x1 - 82, brazo_y + 35), fill=(210, 220, 235))
-    draw.ellipse((cuerpo_x2 + 82, brazo_y + 5, cuerpo_x2 + 112, brazo_y + 35), fill=(210, 220, 235))
-
-    pierna_y1 = cuerpo_y2
-
-    draw.line((centro_x - 45, pierna_y1, centro_x - 55, pierna_y1 + 95), fill=(170, 180, 195), width=18)
-    draw.line((centro_x + 45, pierna_y1, centro_x + 55, pierna_y1 + 95), fill=(170, 180, 195), width=18)
-
-    draw.rounded_rectangle((centro_x - 95, pierna_y1 + 88, centro_x - 25, pierna_y1 + 115), radius=10, fill=(210, 220, 235))
-    draw.rounded_rectangle((centro_x + 25, pierna_y1 + 88, centro_x + 95, pierna_y1 + 115), radius=10, fill=(210, 220, 235))
-
-
 def crear_imagen_robot(prompt: str, ancho: int, alto: int):
-    imagen = crear_degradado(ancho, alto)
+    imagen = crear_fondo(ancho, alto)
     draw = ImageDraw.Draw(imagen)
 
-    fuente_titulo = cargar_fuente(32, bold=True)
-    fuente_texto = cargar_fuente(24)
-    fuente_marca = cargar_fuente(18)
+    fuente_titulo = cargar_fuente(max(24, ancho // 24), bold=True)
+    fuente_texto = cargar_fuente(max(18, ancho // 32), bold=False)
+    fuente_marca = cargar_fuente(max(13, ancho // 45), bold=True)
+    fuente_api = cargar_fuente(max(16, ancho // 35), bold=True)
 
-    dibujar_detalles_fondo(draw, ancho, alto)
+    cx = ancho // 2
 
     draw.rounded_rectangle(
-        (25, 25, ancho - 25, alto - 25),
-        radius=28,
-        outline=(80, 190, 255),
+        (20, 20, ancho - 20, alto - 20),
+        radius=25,
+        outline=(0, 210, 255),
         width=4
     )
 
     draw.rounded_rectangle(
-        (30, 30, ancho - 30, 100),
-        radius=20,
-        fill=(245, 248, 255)
+        (40, 35, ancho - 40, 90),
+        radius=18,
+        fill=(245, 250, 255)
     )
 
     draw.text(
-        (50, 48),
-        "Robot programador generado",
+        (60, 48),
+        "Robot programador",
         fill=(20, 30, 50),
         font=fuente_titulo
     )
 
-    dibujar_robot(draw, ancho, alto)
+    cabeza_w = ancho // 4
+    cabeza_h = alto // 6
+    cabeza_x1 = cx - cabeza_w // 2
+    cabeza_y1 = alto // 5
+    cabeza_x2 = cabeza_x1 + cabeza_w
+    cabeza_y2 = cabeza_y1 + cabeza_h
 
-    lineas = cortar_texto(prompt, max_caracteres=30)
-
-    caja_x1 = 70
-    caja_y1 = alto - 170
-    caja_x2 = ancho - 70
-    caja_y2 = alto - 75
+    draw.line((cx, cabeza_y1 - 25, cx, cabeza_y1), fill=(180, 230, 255), width=4)
+    draw.ellipse((cx - 8, cabeza_y1 - 38, cx + 8, cabeza_y1 - 22), fill=(255, 80, 80))
 
     draw.rounded_rectangle(
-        (caja_x1, caja_y1, caja_x2, caja_y2),
-        radius=18,
-        fill=(20, 28, 55),
-        outline=(100, 180, 255),
+        (cabeza_x1, cabeza_y1, cabeza_x2, cabeza_y2),
+        radius=20,
+        fill=(190, 200, 215),
+        outline=(240, 250, 255),
         width=3
     )
 
-    y = caja_y1 + 18
-    for linea in lineas:
-        draw.text((caja_x1 + 20, y), linea, fill=(210, 235, 255), font=fuente_texto)
-        y += 30
+    ojo = max(14, ancho // 40)
+    draw.ellipse((cabeza_x1 + 25, cabeza_y1 + 35, cabeza_x1 + 25 + ojo, cabeza_y1 + 35 + ojo), fill=(0, 255, 255))
+    draw.ellipse((cabeza_x2 - 25 - ojo, cabeza_y1 + 35, cabeza_x2 - 25, cabeza_y1 + 35 + ojo), fill=(0, 255, 255))
+
+    draw.rounded_rectangle(
+        (cabeza_x1 + 35, cabeza_y2 - 35, cabeza_x2 - 35, cabeza_y2 - 15),
+        radius=6,
+        fill=(40, 60, 80)
+    )
+
+    cuerpo_w = ancho // 3
+    cuerpo_h = alto // 4
+    cuerpo_x1 = cx - cuerpo_w // 2
+    cuerpo_y1 = cabeza_y2 + 20
+    cuerpo_x2 = cuerpo_x1 + cuerpo_w
+    cuerpo_y2 = cuerpo_y1 + cuerpo_h
+
+    draw.rounded_rectangle(
+        (cuerpo_x1, cuerpo_y1, cuerpo_x2, cuerpo_y2),
+        radius=25,
+        fill=(120, 140, 165),
+        outline=(230, 245, 255),
+        width=4
+    )
+
+    draw.rounded_rectangle(
+        (cx - 55, cuerpo_y1 + 25, cx + 55, cuerpo_y1 + 75),
+        radius=12,
+        fill=(20, 40, 75),
+        outline=(0, 220, 255),
+        width=3
+    )
 
     draw.text(
-        (40, alto - 45),
+        (cx - 42, cuerpo_y1 + 40),
+        "PY API",
+        fill=(140, 255, 255),
+        font=fuente_api
+    )
+
+    for i, color in enumerate([(255, 80, 80), (255, 220, 60), (80, 255, 120)]):
+        x = cx - 30 + i * 30
+        draw.ellipse((x, cuerpo_y1 + 95, x + 16, cuerpo_y1 + 111), fill=color)
+
+    brazo_y = cuerpo_y1 + 55
+    draw.line((cuerpo_x1, brazo_y, cuerpo_x1 - 65, brazo_y + 25), fill=(180, 190, 205), width=14)
+    draw.line((cuerpo_x2, brazo_y, cuerpo_x2 + 65, brazo_y + 25), fill=(180, 190, 205), width=14)
+
+    draw.ellipse((cuerpo_x1 - 82, brazo_y + 15, cuerpo_x1 - 52, brazo_y + 45), fill=(220, 230, 240))
+    draw.ellipse((cuerpo_x2 + 52, brazo_y + 15, cuerpo_x2 + 82, brazo_y + 45), fill=(220, 230, 240))
+
+    caja_x1 = 45
+    caja_y1 = alto - 135
+    caja_x2 = ancho - 45
+    caja_y2 = alto - 55
+
+    draw.rounded_rectangle(
+        (caja_x1, caja_y1, caja_x2, caja_y2),
+        radius=16,
+        fill=(15, 25, 50),
+        outline=(0, 220, 255),
+        width=3
+    )
+
+    y = caja_y1 + 15
+    for linea in cortar_texto(prompt, 30):
+        draw.text((caja_x1 + 18, y), linea, fill=(230, 245, 255), font=fuente_texto)
+        y += 26
+
+    draw.text(
+        (45, alto - 38),
         "Creado por Americo Centeno Colque",
         fill=(220, 230, 245),
         font=fuente_marca
@@ -260,51 +233,42 @@ def crear_imagen_robot(prompt: str, ancho: int, alto: int):
 
 
 def crear_imagen_texto(prompt: str, ancho: int, alto: int):
-    imagen = crear_degradado(ancho, alto)
+    imagen = crear_fondo(ancho, alto)
     draw = ImageDraw.Draw(imagen)
 
-    fuente_titulo = cargar_fuente(40, bold=True)
-    fuente_texto = cargar_fuente(28)
-    fuente_marca = cargar_fuente(18)
-
-    margen = 35
+    fuente_titulo = cargar_fuente(max(28, ancho // 22), bold=True)
+    fuente_texto = cargar_fuente(max(22, ancho // 30))
+    fuente_marca = cargar_fuente(max(14, ancho // 45), bold=True)
 
     draw.rounded_rectangle(
-        [(margen, margen), (ancho - margen, alto - margen)],
-        radius=28,
-        outline=(110, 180, 255),
+        (25, 25, ancho - 25, alto - 25),
+        radius=25,
+        outline=(0, 210, 255),
         width=4
     )
 
     draw.rounded_rectangle(
-        [(65, 65), (ancho - 65, 145)],
-        radius=20,
-        fill=(255, 255, 255)
+        (50, 45, ancho - 50, 110),
+        radius=18,
+        fill=(245, 250, 255)
     )
 
     draw.text(
-        (90, 82),
+        (70, 62),
         "Imagen generada",
-        fill=(20, 25, 40),
+        fill=(20, 30, 50),
         font=fuente_titulo
     )
 
-    lineas = cortar_texto(prompt, 30)
-
-    y = 200
-    for linea in lineas:
-        draw.text(
-            (75, y),
-            linea,
-            fill=(230, 240, 255),
-            font=fuente_texto
-        )
-        y += 42
+    y = 160
+    for linea in cortar_texto(prompt, 28):
+        draw.text((60, y), linea, fill=(230, 245, 255), font=fuente_texto)
+        y += 35
 
     draw.text(
-        (75, alto - 85),
+        (60, alto - 55),
         "Creado por Americo Centeno Colque",
-        fill=(200, 210, 230),
+        fill=(220, 230, 245),
         font=fuente_marca
     )
 
@@ -341,29 +305,38 @@ def telegram_enviar_mensaje(chat_id, texto):
     if not TELEGRAM_API:
         return
 
-    requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": texto
-        },
-        timeout=30
-    )
+    try:
+        requests.post(
+            f"{TELEGRAM_API}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": texto
+            },
+            timeout=30
+        )
+    except Exception:
+        pass
 
 
 def telegram_enviar_imagen(chat_id, url_imagen, caption="Imagen generada por la API de Americo"):
     if not TELEGRAM_API:
-        return
+        return False
 
-    requests.post(
-        f"{TELEGRAM_API}/sendPhoto",
-        json={
-            "chat_id": chat_id,
-            "photo": url_imagen,
-            "caption": caption
-        },
-        timeout=30
-    )
+    try:
+        response = requests.post(
+            f"{TELEGRAM_API}/sendPhoto",
+            json={
+                "chat_id": chat_id,
+                "photo": url_imagen,
+                "caption": caption
+            },
+            timeout=60
+        )
+
+        data = response.json()
+        return data.get("ok", False)
+    except Exception:
+        return False
 
 
 @app.get("/")
@@ -479,13 +452,24 @@ async def telegram_webhook(update: dict):
 
         telegram_enviar_mensaje(chat_id, "Generando imagen, espera un momento...")
 
-        _, url_imagen = generar_imagen_archivo(prompt, 768, 768)
+        _, url_imagen = generar_imagen_archivo(prompt, 512, 512)
 
-        telegram_enviar_imagen(
+        enviado = telegram_enviar_imagen(
             chat_id,
             url_imagen,
             "Imagen generada por la API de Americo"
         )
+
+        telegram_enviar_mensaje(
+            chat_id,
+            f"Imagen lista. Si no aparece arriba, ábrela aquí:\n{url_imagen}"
+        )
+
+        if not enviado:
+            telegram_enviar_mensaje(
+                chat_id,
+                "Telegram no pudo mostrar la imagen directamente, pero el link sí debe abrir."
+            )
 
         return {"ok": True}
 
