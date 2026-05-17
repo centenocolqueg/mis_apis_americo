@@ -13,7 +13,10 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="APIs propias de Americo",
     description="API de texto y API de imagen propias en Python.",
-    version="2.0.0"
+    version="1.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
 
@@ -30,8 +33,8 @@ class TextoRequest(BaseModel):
 
 class ImagenRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=300)
-    ancho: int = Field(default=768, ge=512, le=1024)
-    alto: int = Field(default=768, ge=512, le=1024)
+    ancho: int = Field(default=768, ge=256, le=1024)
+    alto: int = Field(default=768, ge=256, le=1024)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -40,13 +43,13 @@ def verificar_api_key(x_api_key: str | None):
 
 
 def cargar_fuente(tamano: int, bold: bool = False):
-    fuentes = [
+    posibles = [
         "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "arial.ttf"
     ]
 
-    for fuente in fuentes:
+    for fuente in posibles:
         try:
             return ImageFont.truetype(fuente, tamano)
         except Exception:
@@ -55,7 +58,7 @@ def cargar_fuente(tamano: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-def cortar_texto(texto: str, max_caracteres: int = 34):
+def cortar_texto(texto: str, max_caracteres: int = 28):
     palabras = texto.split()
     lineas = []
     linea_actual = ""
@@ -73,203 +76,231 @@ def cortar_texto(texto: str, max_caracteres: int = 34):
     if linea_actual:
         lineas.append(linea_actual)
 
-    return lineas[:6]
+    return lineas[:8]
 
 
-def crear_fondo_tecnologico(ancho: int, alto: int):
-    imagen = Image.new("RGB", (ancho, alto), (8, 12, 28))
-    draw = ImageDraw.Draw(imagen)
+def crear_degradado(ancho: int, alto: int):
+    imagen = Image.new("RGB", (ancho, alto))
 
     for y in range(alto):
-        r = int(8 + (y / alto) * 22)
-        g = int(12 + (y / alto) * 35)
-        b = int(28 + (y / alto) * 70)
+        r = int(10 + (y / alto) * 18)
+        g = int(18 + (y / alto) * 22)
+        b = int(45 + (y / alto) * 85)
 
-        draw.line([(0, y), (ancho, y)], fill=(r, g, b))
-
-    for x in range(0, ancho, 64):
-        draw.line([(x, 0), (x, alto)], fill=(20, 60, 110), width=1)
-
-    for y in range(0, alto, 64):
-        draw.line([(0, y), (ancho, y)], fill=(20, 60, 110), width=1)
+        for x in range(ancho):
+            imagen.putpixel((x, y), (r, g, b))
 
     return imagen
 
 
-def dibujar_robot(draw: ImageDraw.ImageDraw, cx: int, cy: int):
-    metal = (185, 200, 215)
-    metal_oscuro = (95, 110, 130)
-    sombra = (35, 45, 65)
-    azul = (0, 190, 255)
-    blanco = (245, 250, 255)
-    negro = (10, 15, 25)
+def dibujar_detalles_fondo(draw, ancho, alto):
+    color = (50, 120, 220)
 
-    # sombra
-    draw.ellipse((cx - 170, cy + 250, cx + 170, cy + 290), fill=(5, 8, 18))
+    for x in range(50, ancho, 120):
+        draw.line([(x, 0), (x + 50, 80)], fill=color, width=1)
 
-    # antena
-    draw.line((cx, cy - 250, cx, cy - 205), fill=metal, width=8)
-    draw.ellipse((cx - 20, cy - 285, cx + 20, cy - 245), fill=azul)
+    for y in range(80, alto, 120):
+        draw.line([(0, y), (100, y + 40)], fill=color, width=1)
 
-    # cabeza
+    for x in range(80, ancho, 160):
+        draw.ellipse((x, 90, x + 8, 98), fill=(120, 200, 255))
+
+    for y in range(140, alto, 170):
+        draw.ellipse((60, y, 68, y + 8), fill=(120, 200, 255))
+
+
+def dibujar_robot(draw, ancho, alto):
+    centro_x = ancho // 2
+
+    cabeza_w = 170
+    cabeza_h = 130
+    cabeza_x1 = centro_x - cabeza_w // 2
+    cabeza_y1 = 140
+    cabeza_x2 = cabeza_x1 + cabeza_w
+    cabeza_y2 = cabeza_y1 + cabeza_h
+
+    draw.line((centro_x, cabeza_y1 - 35, centro_x, cabeza_y1), fill=(180, 230, 255), width=6)
+    draw.ellipse((centro_x - 12, cabeza_y1 - 52, centro_x + 12, cabeza_y1 - 28), fill=(255, 80, 80))
+
     draw.rounded_rectangle(
-        (cx - 130, cy - 210, cx + 130, cy - 20),
-        radius=35,
-        fill=metal,
-        outline=azul,
-        width=5
-    )
-
-    # brillo cabeza
-    draw.rounded_rectangle(
-        (cx - 105, cy - 190, cx + 105, cy - 150),
-        radius=18,
-        fill=(220, 230, 240)
-    )
-
-    # ojos
-    draw.ellipse((cx - 80, cy - 125, cx - 35, cy - 80), fill=azul)
-    draw.ellipse((cx + 35, cy - 125, cx + 80, cy - 80), fill=azul)
-    draw.ellipse((cx - 65, cy - 112, cx - 50, cy - 97), fill=blanco)
-    draw.ellipse((cx + 50, cy - 112, cx + 65, cy - 97), fill=blanco)
-
-    # boca
-    draw.rounded_rectangle(
-        (cx - 60, cy - 58, cx + 60, cy - 38),
-        radius=8,
-        fill=negro
-    )
-
-    for i in range(5):
-        x = cx - 45 + i * 22
-        draw.rectangle((x, cy - 56, x + 8, cy - 40), fill=azul)
-
-    # cuello
-    draw.rounded_rectangle(
-        (cx - 45, cy - 20, cx + 45, cy + 20),
-        radius=10,
-        fill=metal_oscuro
-    )
-
-    # cuerpo
-    draw.rounded_rectangle(
-        (cx - 150, cy + 15, cx + 150, cy + 230),
-        radius=40,
-        fill=metal,
-        outline=azul,
-        width=5
-    )
-
-    # panel pecho
-    draw.rounded_rectangle(
-        (cx - 95, cy + 55, cx + 95, cy + 150),
-        radius=20,
-        fill=sombra,
-        outline=(120, 210, 255),
-        width=3
-    )
-
-    draw.text(
-        (cx - 58, cy + 85),
-        "PY API",
-        fill=azul,
-        font=cargar_fuente(28, bold=True)
-    )
-
-    # luces pecho
-    draw.ellipse((cx - 70, cy + 170, cx - 45, cy + 195), fill=(0, 255, 120))
-    draw.ellipse((cx - 15, cy + 170, cx + 15, cy + 200), fill=(255, 220, 0))
-    draw.ellipse((cx + 45, cy + 170, cx + 70, cy + 195), fill=(255, 70, 70))
-
-    # brazos
-    draw.line((cx - 150, cy + 70, cx - 240, cy + 150), fill=metal_oscuro, width=28)
-    draw.line((cx + 150, cy + 70, cx + 240, cy + 150), fill=metal_oscuro, width=28)
-
-    draw.ellipse((cx - 270, cy + 130, cx - 215, cy + 185), fill=metal)
-    draw.ellipse((cx + 215, cy + 130, cx + 270, cy + 185), fill=metal)
-
-    # laptop
-    draw.rounded_rectangle(
-        (cx - 190, cy + 245, cx + 190, cy + 360),
-        radius=12,
-        fill=(18, 24, 38),
-        outline=azul,
+        (cabeza_x1, cabeza_y1, cabeza_x2, cabeza_y2),
+        radius=25,
+        fill=(185, 195, 210),
+        outline=(240, 245, 255),
         width=4
     )
 
-    draw.rectangle((cx - 170, cy + 265, cx + 170, cy + 335), fill=(5, 10, 20))
-
-    codigo = [
-        "def api():",
-        "  return 'online'",
-        "FastAPI + Python"
-    ]
-
-    fuente_codigo = cargar_fuente(18, bold=False)
-    y = cy + 275
-    for linea in codigo:
-        draw.text((cx - 150, y), linea, fill=(0, 255, 180), font=fuente_codigo)
-        y += 22
+    draw.ellipse((cabeza_x1 + 35, cabeza_y1 + 38, cabeza_x1 + 70, cabeza_y1 + 73), fill=(0, 255, 255))
+    draw.ellipse((cabeza_x2 - 70, cabeza_y1 + 38, cabeza_x2 - 35, cabeza_y1 + 73), fill=(0, 255, 255))
 
     draw.rounded_rectangle(
-        (cx - 220, cy + 360, cx + 220, cy + 385),
+        (cabeza_x1 + 40, cabeza_y2 - 42, cabeza_x2 - 40, cabeza_y2 - 18),
         radius=8,
-        fill=(110, 125, 145)
+        fill=(60, 80, 100)
     )
+
+    for x in range(cabeza_x1 + 48, cabeza_x2 - 40, 18):
+        draw.line((x, cabeza_y2 - 40, x, cabeza_y2 - 20), fill=(190, 230, 255), width=2)
+
+    draw.rectangle((centro_x - 18, cabeza_y2, centro_x + 18, cabeza_y2 + 26), fill=(160, 170, 185))
+
+    cuerpo_x1 = centro_x - 115
+    cuerpo_y1 = cabeza_y2 + 28
+    cuerpo_x2 = centro_x + 115
+    cuerpo_y2 = cuerpo_y1 + 170
+
+    draw.rounded_rectangle(
+        (cuerpo_x1, cuerpo_y1, cuerpo_x2, cuerpo_y2),
+        radius=30,
+        fill=(120, 135, 155),
+        outline=(230, 240, 255),
+        width=4
+    )
+
+    draw.rounded_rectangle(
+        (centro_x - 55, cuerpo_y1 + 28, centro_x + 55, cuerpo_y1 + 88),
+        radius=15,
+        fill=(25, 45, 80),
+        outline=(120, 220, 255),
+        width=3
+    )
+
+    draw.text(
+        (centro_x - 42, cuerpo_y1 + 45),
+        "PY API",
+        fill=(140, 255, 255),
+        font=cargar_fuente(22, bold=True)
+    )
+
+    for i, color in enumerate([(255, 90, 90), (255, 210, 70), (80, 255, 120)]):
+        x = centro_x - 28 + i * 28
+        draw.ellipse((x, cuerpo_y1 + 110, x + 16, cuerpo_y1 + 126), fill=color)
+
+    brazo_y = cuerpo_y1 + 55
+
+    draw.line((cuerpo_x1, brazo_y, cuerpo_x1 - 95, brazo_y + 20), fill=(170, 180, 195), width=18)
+    draw.line((cuerpo_x2, brazo_y, cuerpo_x2 + 95, brazo_y + 20), fill=(170, 180, 195), width=18)
+
+    draw.ellipse((cuerpo_x1 - 112, brazo_y + 5, cuerpo_x1 - 82, brazo_y + 35), fill=(210, 220, 235))
+    draw.ellipse((cuerpo_x2 + 82, brazo_y + 5, cuerpo_x2 + 112, brazo_y + 35), fill=(210, 220, 235))
+
+    pierna_y1 = cuerpo_y2
+
+    draw.line((centro_x - 45, pierna_y1, centro_x - 55, pierna_y1 + 95), fill=(170, 180, 195), width=18)
+    draw.line((centro_x + 45, pierna_y1, centro_x + 55, pierna_y1 + 95), fill=(170, 180, 195), width=18)
+
+    draw.rounded_rectangle((centro_x - 95, pierna_y1 + 88, centro_x - 25, pierna_y1 + 115), radius=10, fill=(210, 220, 235))
+    draw.rounded_rectangle((centro_x + 25, pierna_y1 + 88, centro_x + 95, pierna_y1 + 115), radius=10, fill=(210, 220, 235))
 
 
 def crear_imagen_robot(prompt: str, ancho: int, alto: int):
-    imagen = crear_fondo_tecnologico(ancho, alto)
+    imagen = crear_degradado(ancho, alto)
     draw = ImageDraw.Draw(imagen)
 
-    fuente_titulo = cargar_fuente(42, bold=True)
+    fuente_titulo = cargar_fuente(32, bold=True)
     fuente_texto = cargar_fuente(24)
     fuente_marca = cargar_fuente(18)
 
-    # título
+    dibujar_detalles_fondo(draw, ancho, alto)
+
     draw.rounded_rectangle(
-        (40, 35, ancho - 40, 105),
-        radius=22,
-        fill=(235, 245, 255),
-        outline=(0, 190, 255),
-        width=3
+        (25, 25, ancho - 25, alto - 25),
+        radius=28,
+        outline=(80, 190, 255),
+        width=4
+    )
+
+    draw.rounded_rectangle(
+        (30, 30, ancho - 30, 100),
+        radius=20,
+        fill=(245, 248, 255)
     )
 
     draw.text(
-        (70, 52),
+        (50, 48),
         "Robot programador generado",
-        fill=(15, 25, 45),
+        fill=(20, 30, 50),
         font=fuente_titulo
     )
 
-    # robot central
-    dibujar_robot(draw, ancho // 2, 330)
+    dibujar_robot(draw, ancho, alto)
 
-    # caja prompt
+    lineas = cortar_texto(prompt, max_caracteres=30)
+
+    caja_x1 = 70
+    caja_y1 = alto - 170
+    caja_x2 = ancho - 70
+    caja_y2 = alto - 75
+
     draw.rounded_rectangle(
-        (55, alto - 180, ancho - 55, alto - 75),
-        radius=20,
-        fill=(10, 18, 35),
-        outline=(0, 190, 255),
+        (caja_x1, caja_y1, caja_x2, caja_y2),
+        radius=18,
+        fill=(20, 28, 55),
+        outline=(100, 180, 255),
         width=3
     )
 
-    lineas = cortar_texto(prompt, max_caracteres=42)
-
-    y = alto - 165
+    y = caja_y1 + 18
     for linea in lineas:
-        draw.text(
-            (80, y),
-            linea,
-            fill=(230, 245, 255),
-            font=fuente_texto
-        )
+        draw.text((caja_x1 + 20, y), linea, fill=(210, 235, 255), font=fuente_texto)
         y += 30
 
     draw.text(
-        (70, alto - 45),
+        (40, alto - 45),
         "Creado por Americo Centeno Colque",
-        fill=(210, 225, 240),
+        fill=(220, 230, 245),
+        font=fuente_marca
+    )
+
+    return imagen
+
+
+def crear_imagen_texto(prompt: str, ancho: int, alto: int):
+    imagen = crear_degradado(ancho, alto)
+    draw = ImageDraw.Draw(imagen)
+
+    fuente_titulo = cargar_fuente(40, bold=True)
+    fuente_texto = cargar_fuente(28)
+    fuente_marca = cargar_fuente(18)
+
+    margen = 35
+
+    draw.rounded_rectangle(
+        [(margen, margen), (ancho - margen, alto - margen)],
+        radius=28,
+        outline=(110, 180, 255),
+        width=4
+    )
+
+    draw.rounded_rectangle(
+        [(65, 65), (ancho - 65, 145)],
+        radius=20,
+        fill=(255, 255, 255)
+    )
+
+    draw.text(
+        (90, 82),
+        "Imagen generada",
+        fill=(20, 25, 40),
+        font=fuente_titulo
+    )
+
+    lineas = cortar_texto(prompt, 30)
+
+    y = 200
+    for linea in lineas:
+        draw.text(
+            (75, y),
+            linea,
+            fill=(230, 240, 255),
+            font=fuente_texto
+        )
+        y += 42
+
+    draw.text(
+        (75, alto - 85),
+        "Creado por Americo Centeno Colque",
+        fill=(200, 210, 230),
         font=fuente_marca
     )
 
@@ -323,11 +354,24 @@ def api_imagen(
 ):
     verificar_api_key(x_api_key)
 
-    imagen = crear_imagen_robot(
-        prompt=data.prompt,
-        ancho=data.ancho,
-        alto=data.alto
-    )
+    prompt = data.prompt.lower().strip()
+    ancho = data.ancho
+    alto = data.alto
+
+    palabras_robot = [
+        "robot",
+        "android",
+        "bot",
+        "python",
+        "api",
+        "programando",
+        "programador"
+    ]
+
+    if any(palabra in prompt for palabra in palabras_robot):
+        imagen = crear_imagen_robot(data.prompt, ancho, alto)
+    else:
+        imagen = crear_imagen_texto(data.prompt, ancho, alto)
 
     nombre_archivo = f"{uuid.uuid4().hex}.png"
     ruta = os.path.join(CARPETA_IMAGENES, nombre_archivo)
