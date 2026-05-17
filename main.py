@@ -556,7 +556,7 @@ async def telegram_webhook(update: dict):
             if len(partes) != 3:
                 telegram_enviar_mensaje(
                     chat_id,
-                    "Uso correcto:\n/activar ID plan\n\nEjemplo:\n/activar 123456789 premium"
+                    "Uso correcto:\n/activar ID plan\n\nEjemplo:\n/activar 8616315480 premium"
                 )
                 return {"ok": True}
 
@@ -565,17 +565,43 @@ async def telegram_webhook(update: dict):
 
             ok, msg = activar_usuario(usuario_id, plan)
 
-            telegram_enviar_mensaje(chat_id, msg)
-
             if ok:
                 nombre_plan = PLANES.get(plan, {}).get("nombre", plan.upper())
 
                 telegram_enviar_mensaje(
-                    usuario_id,
-                    "✅ Tu plan fue activado correctamente.\n\n"
-                    f"Plan activo: {nombre_plan}\n\n"
-                    "Ya puedes usar AMERICO IA CORPORATION según los beneficios de tu plan.\n\n"
-                    "Puedes escribir /mi_plan para ver tu estado."
+                    chat_id,
+                    "✅ ACTIVACIÓN EXITOSA\n\n"
+                    f"Usuario ID: {usuario_id}\n"
+                    f"Plan activado: {nombre_plan}\n\n"
+                    "El usuario ya fue notificado correctamente."
+                )
+
+                mensaje_usuario = (
+                    "**SISTEMA ACTIVADO**\n\n"
+                    "Bienvenido a AMERICO IA CORPORATION. "
+                    "Soy la plataforma inteligente corporativa desarrollada por Americo Centeno Colque. "
+                    "Mi objetivo es brindarte asistencia técnica y profesional en programación, APIs, bots, automatización, "
+                    "generación de imágenes y otros temas relacionados con tecnología.\n\n"
+                    "**ESTADO DEL SISTEMA**\n\n"
+                    "- Lanzamiento oficial: 17/05/2026\n"
+                    "- Desarrollador principal: Americo Centeno Colque\n"
+                    "- Plataforma tecnológica: Basada en Python, APIs inteligentes, servicios cloud, automatización y conexión con plataformas externas\n"
+                    f"- Plan activo: {nombre_plan}\n\n"
+                    "**COMANDOS DISPONIBLES**\n\n"
+                    "- /premium: Ver planes disponibles.\n"
+                    "- /mi_plan: Ver estado de tu plan.\n"
+                    "- /imagen [prompt]: Generar imágenes con IA.\n"
+                    "- Escribe cualquier pregunta normal para recibir asistencia inteligente.\n\n"
+                    "¿En qué puedo ayudarte hoy?"
+                )
+
+                telegram_enviar_mensaje(usuario_id, mensaje_usuario)
+
+            else:
+                telegram_enviar_mensaje(
+                    chat_id,
+                    "❌ No se pudo activar el usuario.\n\n"
+                    f"Detalle: {msg}"
                 )
 
             return {"ok": True}
