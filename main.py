@@ -1,5 +1,6 @@
 import os
 import uuid
+import requests
 from datetime import datetime
 
 from fastapi import FastAPI, Header, HTTPException
@@ -12,8 +13,8 @@ from modelo_texto import responder_mensaje
 
 app = FastAPI(
     title="APIs propias de Americo",
-    description="API de texto y API de imagen propias en Python.",
-    version="1.1.0",
+    description="API de texto, API de imagen y bot de Telegram en Python.",
+    version="1.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -22,6 +23,9 @@ app = FastAPI(
 
 API_KEY = os.getenv("API_KEY", "americo_api_local")
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}" if TELEGRAM_TOKEN else ""
 
 CARPETA_IMAGENES = "imagenes"
 os.makedirs(CARPETA_IMAGENES, exist_ok=True)
@@ -307,6 +311,61 @@ def crear_imagen_texto(prompt: str, ancho: int, alto: int):
     return imagen
 
 
+def generar_imagen_archivo(prompt: str, ancho: int = 768, alto: int = 768):
+    prompt_limpio = prompt.lower().strip()
+
+    palabras_robot = [
+        "robot",
+        "android",
+        "bot",
+        "python",
+        "api",
+        "programando",
+        "programador"
+    ]
+
+    if any(palabra in prompt_limpio for palabra in palabras_robot):
+        imagen = crear_imagen_robot(prompt, ancho, alto)
+    else:
+        imagen = crear_imagen_texto(prompt, ancho, alto)
+
+    nombre_archivo = f"{uuid.uuid4().hex}.png"
+    ruta = os.path.join(CARPETA_IMAGENES, nombre_archivo)
+
+    imagen.save(ruta, format="PNG", optimize=True)
+
+    return nombre_archivo, f"{BASE_URL}/imagen/{nombre_archivo}"
+
+
+def telegram_enviar_mensaje(chat_id, texto):
+    if not TELEGRAM_API:
+        return
+
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": texto
+        },
+        timeout=30
+    )
+
+
+def telegram_enviar_imagen(chat_id, url_imagen, caption="Imagen generada por la API de Americo"):
+    if not TELEGRAM_API:
+        return
+
+    requests.post(
+        f"{TELEGRAM_API}/sendPhoto",
+        json={
+            "chat_id": chat_id,
+            "photo": url_imagen,
+            "caption": caption
+        },
+        timeout=30
+    )
+
+
 @app.get("/")
 def home():
     return {
@@ -315,7 +374,9 @@ def home():
         "creador": "Americo Centeno Colque",
         "endpoints": [
             "/api/texto",
-            "/api/imagen"
+            "/api/imagen",
+            "/telegram/webhook",
+            "/telegram/set-webhook"
         ]
     }
 
@@ -354,36 +415,18 @@ def api_imagen(
 ):
     verificar_api_key(x_api_key)
 
-    prompt = data.prompt.lower().strip()
-    ancho = data.ancho
-    alto = data.alto
-
-    palabras_robot = [
-        "robot",
-        "android",
-        "bot",
-        "python",
-        "api",
-        "programando",
-        "programador"
-    ]
-
-    if any(palabra in prompt for palabra in palabras_robot):
-        imagen = crear_imagen_robot(data.prompt, ancho, alto)
-    else:
-        imagen = crear_imagen_texto(data.prompt, ancho, alto)
-
-    nombre_archivo = f"{uuid.uuid4().hex}.png"
-    ruta = os.path.join(CARPETA_IMAGENES, nombre_archivo)
-
-    imagen.save(ruta, format="PNG", optimize=True)
+    nombre_archivo, url_imagen = generar_imagen_archivo(
+        data.prompt,
+        data.ancho,
+        data.alto
+    )
 
     return {
         "api": "imagen",
         "creador": "Americo Centeno Colque",
         "prompt": data.prompt,
         "archivo": nombre_archivo,
-        "url": f"{BASE_URL}/imagen/{nombre_archivo}"
+        "url": url_imagen
     }
 
 
@@ -395,3 +438,97 @@ def obtener_imagen(nombre_archivo: str):
         raise HTTPException(status_code=404, detail="Imagen no encontrada")
 
     return FileResponse(ruta, media_type="image/png")
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(update: dict):
+    mensaje = update.get("message", {})
+
+    chat = mensaje.get("chat", {})
+    chat_id = chat.get("id")
+
+    texto = mensaje.get("text", "")
+
+    if not chat_id:
+        return {"ok": True}
+
+    if not texto:
+        telegram_enviar_mensaje(chat_id, "Solo puedo responder mensajes de texto por ahora.")
+        return {"ok": True}
+
+    texto = texto.strip()
+
+    if texto == "/start":
+        telegram_enviar_mensaje(
+            chat_id,
+            "Hola, soy el bot conectado a la API de Americo Centeno Colque.\n\n"
+            "Puedes escribirme una pregunta normal o usar:\n"
+            "/imagen robot programando una api en python"
+        )
+        return {"ok": True}
+
+    if texto.startswith("/imagen"):
+        prompt = texto.replace("/imagen", "").strip()
+
+        if not prompt:
+            telegram_enviar_mensaje(
+                chat_id,
+                "Escribe un prompt. Ejemplo:\n/imagen robot programando una api en python"
+            )
+            return {"ok": True}
+
+        telegram_enviar_mensaje(chat_id, "Generando imagen, espera un momento...")
+
+        _, url_imagen = generar_imagen_archivo(prompt, 768, 768)
+
+        telegram_enviar_imagen(
+            chat_id,
+            url_imagen,
+            "Imagen generada por la API de Americo"
+        )
+
+        return {"ok": True}
+
+    resultado = responder_mensaje(texto)
+
+    telegram_enviar_mensaje(
+        chat_id,
+        resultado["respuesta"]
+    )
+
+    return {"ok": True}
+
+
+@app.get("/telegram/set-webhook")
+def telegram_set_webhook(x_api_key: str | None = Header(default=None)):
+    verificar_api_key(x_api_key)
+
+    if not TELEGRAM_API:
+        raise HTTPException(status_code=500, detail="TELEGRAM_TOKEN no configurado")
+
+    webhook_url = f"{BASE_URL}/telegram/webhook"
+
+    response = requests.get(
+        f"{TELEGRAM_API}/setWebhook",
+        params={
+            "url": webhook_url
+        },
+        timeout=30
+    )
+
+    return response.json()
+
+
+@app.get("/telegram/delete-webhook")
+def telegram_delete_webhook(x_api_key: str | None = Header(default=None)):
+    verificar_api_key(x_api_key)
+
+    if not TELEGRAM_API:
+        raise HTTPException(status_code=500, detail="TELEGRAM_TOKEN no configurado")
+
+    response = requests.get(
+        f"{TELEGRAM_API}/deleteWebhook",
+        timeout=30
+    )
+
+    return response.json()
