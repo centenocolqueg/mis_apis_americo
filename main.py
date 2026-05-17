@@ -14,7 +14,7 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="APIs propias de Americo",
     description="API de texto, API de imagen y bot de Telegram en Python.",
-    version="1.4.0",
+    version="1.5.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -509,15 +509,10 @@ async def telegram_webhook(update: dict):
             "Imagen generada por la API de Americo"
         )
 
-        if enviado:
+        if not enviado:
             telegram_enviar_mensaje(
                 chat_id,
-                f"Imagen lista ✅\nLink: {url_imagen}"
-            )
-        else:
-            telegram_enviar_mensaje(
-                chat_id,
-                f"Telegram no pudo mostrar la imagen directamente, pero puedes abrirla aquí:\n{url_imagen}"
+                "No pude enviar la imagen. Intenta otra vez."
             )
 
         return {"ok": True}
