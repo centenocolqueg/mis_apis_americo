@@ -14,7 +14,7 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="APIs propias de Americo",
     description="API de texto, API de imagen y bot de Telegram en Python.",
-    version="1.3.0",
+    version="1.4.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -88,12 +88,10 @@ def crear_fondo(ancho: int, alto: int):
     draw = ImageDraw.Draw(imagen)
 
     for y in range(0, alto, 40):
-        color = (20, 60, 120)
-        draw.line((0, y, ancho, y), fill=color, width=1)
+        draw.line((0, y, ancho, y), fill=(20, 60, 120), width=1)
 
     for x in range(0, ancho, 40):
-        color = (20, 60, 120)
-        draw.line((x, 0, x, alto), fill=color, width=1)
+        draw.line((x, 0, x, alto), fill=(20, 60, 120), width=1)
 
     for x in range(20, ancho, 90):
         draw.ellipse((x, 30, x + 5, 35), fill=(0, 220, 255))
@@ -154,8 +152,16 @@ def crear_imagen_robot(prompt: str, ancho: int, alto: int):
     )
 
     ojo = max(14, ancho // 40)
-    draw.ellipse((cabeza_x1 + 25, cabeza_y1 + 35, cabeza_x1 + 25 + ojo, cabeza_y1 + 35 + ojo), fill=(0, 255, 255))
-    draw.ellipse((cabeza_x2 - 25 - ojo, cabeza_y1 + 35, cabeza_x2 - 25, cabeza_y1 + 35 + ojo), fill=(0, 255, 255))
+
+    draw.ellipse(
+        (cabeza_x1 + 25, cabeza_y1 + 35, cabeza_x1 + 25 + ojo, cabeza_y1 + 35 + ojo),
+        fill=(0, 255, 255)
+    )
+
+    draw.ellipse(
+        (cabeza_x2 - 25 - ojo, cabeza_y1 + 35, cabeza_x2 - 25, cabeza_y1 + 35 + ojo),
+        fill=(0, 255, 255)
+    )
 
     draw.rounded_rectangle(
         (cabeza_x1 + 35, cabeza_y2 - 35, cabeza_x2 - 35, cabeza_y2 - 15),
@@ -198,11 +204,28 @@ def crear_imagen_robot(prompt: str, ancho: int, alto: int):
         draw.ellipse((x, cuerpo_y1 + 95, x + 16, cuerpo_y1 + 111), fill=color)
 
     brazo_y = cuerpo_y1 + 55
-    draw.line((cuerpo_x1, brazo_y, cuerpo_x1 - 65, brazo_y + 25), fill=(180, 190, 205), width=14)
-    draw.line((cuerpo_x2, brazo_y, cuerpo_x2 + 65, brazo_y + 25), fill=(180, 190, 205), width=14)
 
-    draw.ellipse((cuerpo_x1 - 82, brazo_y + 15, cuerpo_x1 - 52, brazo_y + 45), fill=(220, 230, 240))
-    draw.ellipse((cuerpo_x2 + 52, brazo_y + 15, cuerpo_x2 + 82, brazo_y + 45), fill=(220, 230, 240))
+    draw.line(
+        (cuerpo_x1, brazo_y, cuerpo_x1 - 65, brazo_y + 25),
+        fill=(180, 190, 205),
+        width=14
+    )
+
+    draw.line(
+        (cuerpo_x2, brazo_y, cuerpo_x2 + 65, brazo_y + 25),
+        fill=(180, 190, 205),
+        width=14
+    )
+
+    draw.ellipse(
+        (cuerpo_x1 - 82, brazo_y + 15, cuerpo_x1 - 52, brazo_y + 45),
+        fill=(220, 230, 240)
+    )
+
+    draw.ellipse(
+        (cuerpo_x2 + 52, brazo_y + 15, cuerpo_x2 + 82, brazo_y + 45),
+        fill=(220, 230, 240)
+    )
 
     caja_x1 = 45
     caja_y1 = alto - 135
@@ -218,8 +241,14 @@ def crear_imagen_robot(prompt: str, ancho: int, alto: int):
     )
 
     y = caja_y1 + 15
+
     for linea in cortar_texto(prompt, 30):
-        draw.text((caja_x1 + 18, y), linea, fill=(230, 245, 255), font=fuente_texto)
+        draw.text(
+            (caja_x1 + 18, y),
+            linea,
+            fill=(230, 245, 255),
+            font=fuente_texto
+        )
         y += 26
 
     draw.text(
@@ -261,8 +290,14 @@ def crear_imagen_texto(prompt: str, ancho: int, alto: int):
     )
 
     y = 160
+
     for linea in cortar_texto(prompt, 28):
-        draw.text((60, y), linea, fill=(230, 245, 255), font=fuente_texto)
+        draw.text(
+            (60, y),
+            linea,
+            fill=(230, 245, 255),
+            font=fuente_texto
+        )
         y += 35
 
     draw.text(
@@ -298,7 +333,7 @@ def generar_imagen_archivo(prompt: str, ancho: int = 768, alto: int = 768):
 
     imagen.save(ruta, format="PNG", optimize=True)
 
-    return nombre_archivo, f"{BASE_URL}/imagen/{nombre_archivo}"
+    return nombre_archivo, ruta, f"{BASE_URL}/imagen/{nombre_archivo}"
 
 
 def telegram_enviar_mensaje(chat_id, texto):
@@ -318,23 +353,27 @@ def telegram_enviar_mensaje(chat_id, texto):
         pass
 
 
-def telegram_enviar_imagen(chat_id, url_imagen, caption="Imagen generada por la API de Americo"):
+def telegram_enviar_imagen_archivo(chat_id, ruta_imagen, caption="Imagen generada por la API de Americo"):
     if not TELEGRAM_API:
         return False
 
     try:
-        response = requests.post(
-            f"{TELEGRAM_API}/sendPhoto",
-            json={
-                "chat_id": chat_id,
-                "photo": url_imagen,
-                "caption": caption
-            },
-            timeout=60
-        )
+        with open(ruta_imagen, "rb") as foto:
+            response = requests.post(
+                f"{TELEGRAM_API}/sendPhoto",
+                data={
+                    "chat_id": chat_id,
+                    "caption": caption
+                },
+                files={
+                    "photo": foto
+                },
+                timeout=60
+            )
 
         data = response.json()
         return data.get("ok", False)
+
     except Exception:
         return False
 
@@ -388,7 +427,7 @@ def api_imagen(
 ):
     verificar_api_key(x_api_key)
 
-    nombre_archivo, url_imagen = generar_imagen_archivo(
+    nombre_archivo, ruta_imagen, url_imagen = generar_imagen_archivo(
         data.prompt,
         data.ancho,
         data.alto
@@ -426,7 +465,10 @@ async def telegram_webhook(update: dict):
         return {"ok": True}
 
     if not texto:
-        telegram_enviar_mensaje(chat_id, "Solo puedo responder mensajes de texto por ahora.")
+        telegram_enviar_mensaje(
+            chat_id,
+            "Solo puedo responder mensajes de texto por ahora."
+        )
         return {"ok": True}
 
     texto = texto.strip()
@@ -450,25 +492,32 @@ async def telegram_webhook(update: dict):
             )
             return {"ok": True}
 
-        telegram_enviar_mensaje(chat_id, "Generando imagen, espera un momento...")
-
-        _, url_imagen = generar_imagen_archivo(prompt, 512, 512)
-
-        enviado = telegram_enviar_imagen(
+        telegram_enviar_mensaje(
             chat_id,
-            url_imagen,
+            "Generando imagen, espera un momento..."
+        )
+
+        nombre_archivo, ruta_imagen, url_imagen = generar_imagen_archivo(
+            prompt,
+            512,
+            512
+        )
+
+        enviado = telegram_enviar_imagen_archivo(
+            chat_id,
+            ruta_imagen,
             "Imagen generada por la API de Americo"
         )
 
-        telegram_enviar_mensaje(
-            chat_id,
-            f"Imagen lista. Si no aparece arriba, ábrela aquí:\n{url_imagen}"
-        )
-
-        if not enviado:
+        if enviado:
             telegram_enviar_mensaje(
                 chat_id,
-                "Telegram no pudo mostrar la imagen directamente, pero el link sí debe abrir."
+                f"Imagen lista ✅\nLink: {url_imagen}"
+            )
+        else:
+            telegram_enviar_mensaje(
+                chat_id,
+                f"Telegram no pudo mostrar la imagen directamente, pero puedes abrirla aquí:\n{url_imagen}"
             )
 
         return {"ok": True}
