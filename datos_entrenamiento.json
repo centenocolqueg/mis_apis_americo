@@ -1,0 +1,91 @@
+[
+  {
+    "intencion": "saludo",
+    "frases": [
+      "hola",
+      "buenas",
+      "hey",
+      "que tal",
+      "como estas",
+      "hola bot",
+      "hola api"
+    ],
+    "respuesta": "Hola, soy una API creada por Americo Centeno Colque."
+  },
+  {
+    "intencion": "creador",
+    "frases": [
+      "quien te creo",
+      "quién te creó",
+      "quien es tu creador",
+      "quién es tu creador",
+      "quien te hizo",
+      "quién te hizo",
+      "quien te programo",
+      "quién te programó",
+      "como se llama tu creador"
+    ],
+    "respuesta": "Fui creado por Americo Centeno Colque."
+  },
+  {
+    "intencion": "identidad",
+    "frases": [
+      "quien eres",
+      "quién eres",
+      "que eres",
+      "qué eres",
+      "presentate",
+      "preséntate",
+      "dime quien eres"
+    ],
+    "respuesta": "Soy una API de texto e imagen creada en Python por Americo Centeno Colque."
+  },
+  {
+    "intencion": "telegram",
+    "frases": [
+      "puedes conectarte a telegram",
+      "funcionas con telegram",
+      "bot de telegram",
+      "api para telegram",
+      "conectar con telegram"
+    ],
+    "respuesta": "Sí, puedo conectarme con un bot de Telegram usando mi propia API en Python."
+  },
+  {
+    "intencion": "imagen",
+    "frases": [
+      "puedes generar imagenes",
+      "puedes generar imágenes",
+      "crea una imagen",
+      "generar imagen",
+      "haz una imagen",
+      "haz una foto",
+      "dibuja algo"
+    ],
+    "respuesta": "Sí, tengo una API de imagen creada con Python y Pillow."
+  },
+  {
+    "intencion": "estado",
+    "frases": [
+      "estas funcionando",
+      "estás funcionando",
+      "sigues activo",
+      "api activa",
+      "servidor activo",
+      "funcionas"
+    ],
+    "respuesta": "Sí, estoy funcionando correctamente desde mi servidor Python."
+  },
+  {
+    "intencion": "despedida",
+    "frases": [
+      "adios",
+      "adiós",
+      "chau",
+      "hasta luego",
+      "nos vemos",
+      "bye"
+    ],
+    "respuesta": "Hasta luego. Recuerda que fui creado por Americo Centeno Colque."
+  }
+]
