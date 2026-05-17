@@ -1,15 +1,14 @@
-
-    }import os
+import os
 from google import genai
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 MODELOS_GEMINI = [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b"
 ]
 
 
@@ -39,8 +38,6 @@ Reglas:
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
 
-        ultimo_error = ""
-
         for modelo in MODELOS_GEMINI:
             try:
                 respuesta = client.models.generate_content(
@@ -52,16 +49,16 @@ Reglas:
                     return respuesta.text.strip()
 
             except Exception as error:
-                ultimo_error = str(error)
+                error_texto = str(error)
 
-                if "429" in ultimo_error or "RESOURCE_EXHAUSTED" in ultimo_error:
+                if "429" in error_texto or "RESOURCE_EXHAUSTED" in error_texto:
                     continue
 
                 continue
 
         return (
             "La IA está conectada, pero Gemini no me dejó responder por límite de cuota. "
-            "Espera un momento y vuelve a intentar. Si sigue igual, hay que crear otra clave o activar otro modelo."
+            "Espera un momento y vuelve a intentar. Si sigue igual, hay que crear otra clave de Gemini."
         )
 
     except Exception as error:
