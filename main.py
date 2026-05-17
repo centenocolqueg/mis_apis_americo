@@ -13,7 +13,7 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="AMERICO IA CORPORATION",
     description="API de texto, imagen IA, bot Telegram y sistema premium.",
-    version="3.0.0",
+    version="3.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -36,8 +36,8 @@ PLANES = {
     "gratis": {
         "nombre": "GRATIS",
         "dias": 0,
-        "mensajes": 10,
-        "imagenes": 2
+        "mensajes": 20,
+        "imagenes": 10
     },
     "basico": {
         "nombre": "BÁSICO",
@@ -145,8 +145,16 @@ def guardar_usuarios(usuarios):
         json.dump(usuarios, archivo, indent=4, ensure_ascii=False)
 
 
-def hoy_texto():
-    return datetime.now().strftime("%Y-%m-%d")
+def ahora_texto():
+    return datetime.now().isoformat()
+
+
+def pasaron_2_horas(fecha_texto):
+    try:
+        fecha = datetime.fromisoformat(fecha_texto)
+        return datetime.now() >= fecha + timedelta(hours=2)
+    except Exception:
+        return True
 
 
 def crear_usuario_si_no_existe(chat_id):
@@ -160,19 +168,21 @@ def crear_usuario_si_no_existe(chat_id):
             "vence": "sin_vencimiento",
             "mensajes_usados": 0,
             "imagenes_usadas": 0,
-            "dia_uso": hoy_texto()
+            "inicio_periodo": ahora_texto()
         }
         guardar_usuarios(usuarios)
 
     return usuarios[user_id]
 
 
-def resetear_gratis_si_es_otro_dia(usuario):
+def resetear_gratis_si_pasaron_2_horas(usuario):
     if usuario.get("plan") == "gratis":
-        if usuario.get("dia_uso") != hoy_texto():
+        inicio = usuario.get("inicio_periodo", "")
+
+        if pasaron_2_horas(inicio):
             usuario["mensajes_usados"] = 0
             usuario["imagenes_usadas"] = 0
-            usuario["dia_uso"] = hoy_texto()
+            usuario["inicio_periodo"] = ahora_texto()
 
 
 def verificar_permiso(chat_id, tipo_uso):
@@ -188,7 +198,7 @@ def verificar_permiso(chat_id, tipo_uso):
         usuarios = cargar_usuarios()
 
     usuario = usuarios[user_id]
-    resetear_gratis_si_es_otro_dia(usuario)
+    resetear_gratis_si_pasaron_2_horas(usuario)
 
     if usuario.get("estado") == "bloqueado":
         guardar_usuarios(usuarios)
@@ -207,7 +217,7 @@ def verificar_permiso(chat_id, tipo_uso):
                 usuario["vence"] = "sin_vencimiento"
                 usuario["mensajes_usados"] = 0
                 usuario["imagenes_usadas"] = 0
-                usuario["dia_uso"] = hoy_texto()
+                usuario["inicio_periodo"] = ahora_texto()
                 guardar_usuarios(usuarios)
                 return False, (
                     "Tu plan venció.\n\n"
@@ -220,8 +230,9 @@ def verificar_permiso(chat_id, tipo_uso):
         if usuario.get("mensajes_usados", 0) >= datos_plan["mensajes"]:
             guardar_usuarios(usuarios)
             return False, (
-                "Llegaste al límite de mensajes de tu plan.\n\n"
-                "Para ampliar tu acceso, escribe /premium."
+                "Llegaste al límite gratuito de 20 mensajes.\n\n"
+                "Para seguir navegando y usando AMERICO IA CORPORATION, compra un plan premium con /premium "
+                "o vuelve a intentarlo en 2 horas."
             )
 
         usuario["mensajes_usados"] = usuario.get("mensajes_usados", 0) + 1
@@ -230,8 +241,9 @@ def verificar_permiso(chat_id, tipo_uso):
         if usuario.get("imagenes_usadas", 0) >= datos_plan["imagenes"]:
             guardar_usuarios(usuarios)
             return False, (
-                "Llegaste al límite de imágenes de tu plan.\n\n"
-                "Para generar más imágenes, escribe /premium."
+                "Llegaste al límite gratuito de 10 imágenes.\n\n"
+                "Para seguir generando imágenes, compra un plan premium con /premium "
+                "o vuelve a intentarlo en 2 horas."
             )
 
         usuario["imagenes_usadas"] = usuario.get("imagenes_usadas", 0) + 1
@@ -262,7 +274,7 @@ def activar_usuario(user_id, plan):
         "vence": vence,
         "mensajes_usados": 0,
         "imagenes_usadas": 0,
-        "dia_uso": hoy_texto()
+        "inicio_periodo": ahora_texto()
     }
 
     guardar_usuarios(usuarios)
@@ -319,6 +331,27 @@ def obtener_info_usuario(user_id):
     )
 
 
+def mensaje_sistema_activado(nombre_plan):
+    return (
+        "**SISTEMA ACTIVADO**\n\n"
+        "Bienvenido a AMERICO IA CORPORATION. "
+        "Soy la plataforma inteligente corporativa desarrollada por Americo Centeno Colque. "
+        "Mi objetivo es brindarte asistencia técnica y profesional en programación, APIs, bots, automatización, "
+        "generación de imágenes y otros temas relacionados con tecnología.\n\n"
+        "**ESTADO DEL SISTEMA**\n\n"
+        "- Lanzamiento oficial: 17/05/2026\n"
+        "- Desarrollador principal: Americo Centeno Colque\n"
+        "- Plataforma tecnológica: Basada en Python, APIs inteligentes, servicios cloud, automatización y conexión con plataformas externas\n"
+        f"- Plan activo: {nombre_plan}\n\n"
+        "**COMANDOS DISPONIBLES**\n\n"
+        "- /premium: Ver planes disponibles.\n"
+        "- /mi_plan: Ver estado de tu plan.\n"
+        "- /imagen [prompt]: Generar imágenes con IA.\n"
+        "- Escribe cualquier pregunta normal para recibir asistencia inteligente.\n\n"
+        "¿En qué puedo ayudarte hoy?"
+    )
+
+
 def crear_url_pollinations(prompt: str, ancho: int = 768, alto: int = 768):
     prompt_mejorado = (
         f"{prompt}, imagen realista, alta calidad, ultra detallada, "
@@ -333,16 +366,42 @@ def crear_url_pollinations(prompt: str, ancho: int = 768, alto: int = 768):
     )
 
 
-def telegram_enviar_mensaje(chat_id, texto):
+def telegram_enviar_mensaje(chat_id, texto, reply_markup=None):
+    if not TELEGRAM_API:
+        return False
+
+    try:
+        payload = {
+            "chat_id": chat_id,
+            "text": texto
+        }
+
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+
+        response = requests.post(
+            f"{TELEGRAM_API}/sendMessage",
+            json=payload,
+            timeout=30
+        )
+
+        return response.json().get("ok", False)
+
+    except Exception:
+        return False
+
+
+def telegram_responder_callback(callback_query_id, texto="Listo"):
     if not TELEGRAM_API:
         return False
 
     try:
         response = requests.post(
-            f"{TELEGRAM_API}/sendMessage",
+            f"{TELEGRAM_API}/answerCallbackQuery",
             json={
-                "chat_id": chat_id,
-                "text": texto
+                "callback_query_id": callback_query_id,
+                "text": texto,
+                "show_alert": False
             },
             timeout=30
         )
@@ -426,6 +485,31 @@ def procesar_voucher(mensaje, chat_id):
     user_id = usuario.get("id", "sin_id")
     message_id = mensaje.get("message_id")
 
+    botones = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "✅ BÁSICO",
+                    "callback_data": f"activar:{user_id}:basico"
+                },
+                {
+                    "text": "💎 PREMIUM",
+                    "callback_data": f"activar:{user_id}:premium"
+                }
+            ],
+            [
+                {
+                    "text": "🚀 PRO",
+                    "callback_data": f"activar:{user_id}:pro"
+                },
+                {
+                    "text": "🤝 AMIGO",
+                    "callback_data": f"activar:{user_id}:amigo"
+                }
+            ]
+        ]
+    }
+
     aviso_admin = (
         "╔══════════════════════════════╗\n"
         "║       NUEVO VOUCHER YAPE     ║\n"
@@ -435,14 +519,10 @@ def procesar_voucher(mensaje, chat_id):
         f"✅ ID Telegram: {user_id}\n"
         f"✅ Chat ID: {chat_id}\n\n"
         "📌 Estado: Pendiente de revisión.\n\n"
-        "Para activar usa:\n"
-        f"/activar {user_id} basico\n"
-        f"/activar {user_id} premium\n"
-        f"/activar {user_id} pro\n"
-        f"/activar {user_id} amigo"
+        "Presiona un botón para activar el plan comprado:"
     )
 
-    telegram_enviar_mensaje(ADMIN_CHAT_ID, aviso_admin)
+    telegram_enviar_mensaje(ADMIN_CHAT_ID, aviso_admin, botones)
     telegram_reenviar_mensaje(ADMIN_CHAT_ID, chat_id, message_id)
 
     telegram_enviar_mensaje(
@@ -462,6 +542,7 @@ def home():
         "texto": "Groq IA",
         "imagen": "Pollinations AI",
         "premium": "activo",
+        "gratis": "20 mensajes y 10 imágenes cada 2 horas",
         "endpoints": [
             "/api/texto",
             "/api/imagen",
@@ -521,6 +602,53 @@ def api_imagen(
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(update: dict):
+    if "callback_query" in update:
+        callback = update["callback_query"]
+        callback_id = callback.get("id")
+        data = callback.get("data", "")
+        admin_chat = callback.get("message", {}).get("chat", {})
+        admin_chat_id = admin_chat.get("id")
+
+        if str(admin_chat_id) != str(ADMIN_CHAT_ID):
+            telegram_responder_callback(callback_id, "No autorizado")
+            return {"ok": True}
+
+        if data.startswith("activar:"):
+            partes_callback = data.split(":")
+
+            if len(partes_callback) == 3:
+                usuario_id = partes_callback[1]
+                plan = partes_callback[2]
+
+                ok, msg = activar_usuario(usuario_id, plan)
+
+                if ok:
+                    nombre_plan = PLANES.get(plan, {}).get("nombre", plan.upper())
+
+                    telegram_enviar_mensaje(
+                        ADMIN_CHAT_ID,
+                        "✅ ACTIVACIÓN EXITOSA\n\n"
+                        f"Usuario ID: {usuario_id}\n"
+                        f"Plan activado: {nombre_plan}\n\n"
+                        "El usuario ya fue notificado correctamente."
+                    )
+
+                    telegram_enviar_mensaje(
+                        usuario_id,
+                        mensaje_sistema_activado(nombre_plan)
+                    )
+
+                    telegram_responder_callback(callback_id, "Plan activado")
+                else:
+                    telegram_enviar_mensaje(
+                        ADMIN_CHAT_ID,
+                        "❌ No se pudo activar el usuario.\n\n"
+                        f"Detalle: {msg}"
+                    )
+                    telegram_responder_callback(callback_id, "Error al activar")
+
+        return {"ok": True}
+
     mensaje = update.get("message", {})
 
     chat = mensaje.get("chat", {})
@@ -552,7 +680,7 @@ async def telegram_webhook(update: dict):
     if user_id == str(ADMIN_CHAT_ID):
         partes = texto.split()
 
-        if partes[0] == "/activar":
+        if len(partes) >= 1 and partes[0] == "/activar":
             if len(partes) != 3:
                 telegram_enviar_mensaje(
                     chat_id,
@@ -576,26 +704,10 @@ async def telegram_webhook(update: dict):
                     "El usuario ya fue notificado correctamente."
                 )
 
-                mensaje_usuario = (
-                    "**SISTEMA ACTIVADO**\n\n"
-                    "Bienvenido a AMERICO IA CORPORATION. "
-                    "Soy la plataforma inteligente corporativa desarrollada por Americo Centeno Colque. "
-                    "Mi objetivo es brindarte asistencia técnica y profesional en programación, APIs, bots, automatización, "
-                    "generación de imágenes y otros temas relacionados con tecnología.\n\n"
-                    "**ESTADO DEL SISTEMA**\n\n"
-                    "- Lanzamiento oficial: 17/05/2026\n"
-                    "- Desarrollador principal: Americo Centeno Colque\n"
-                    "- Plataforma tecnológica: Basada en Python, APIs inteligentes, servicios cloud, automatización y conexión con plataformas externas\n"
-                    f"- Plan activo: {nombre_plan}\n\n"
-                    "**COMANDOS DISPONIBLES**\n\n"
-                    "- /premium: Ver planes disponibles.\n"
-                    "- /mi_plan: Ver estado de tu plan.\n"
-                    "- /imagen [prompt]: Generar imágenes con IA.\n"
-                    "- Escribe cualquier pregunta normal para recibir asistencia inteligente.\n\n"
-                    "¿En qué puedo ayudarte hoy?"
+                telegram_enviar_mensaje(
+                    usuario_id,
+                    mensaje_sistema_activado(nombre_plan)
                 )
-
-                telegram_enviar_mensaje(usuario_id, mensaje_usuario)
 
             else:
                 telegram_enviar_mensaje(
@@ -627,6 +739,7 @@ async def telegram_webhook(update: dict):
             "Hola. Soy AMERICO IA CORPORATION.\n\n"
             "Puedes escribirme una pregunta normal o generar imágenes con:\n"
             "/imagen robot realista programando una API en Python\n\n"
+            "Tu acceso gratis incluye 20 mensajes y 10 imágenes cada 2 horas.\n\n"
             "Para ver planes premium escribe:\n"
             "/premium"
         )
