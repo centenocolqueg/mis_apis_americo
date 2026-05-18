@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from modelo_texto import responder_mensaje
@@ -13,10 +14,18 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="AMERICO IA CORPORATION",
     description="API de texto, imagen IA, bot Telegram y sistema premium.",
-    version="3.1.0",
+    version="3.1.1",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
