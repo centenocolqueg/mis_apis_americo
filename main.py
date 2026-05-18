@@ -13,8 +13,8 @@ from modelo_texto import responder_mensaje
 
 app = FastAPI(
     title="AMERICO IA CORPORATION",
-    description="API de texto, imagen IA, bot Telegram, Supabase e historial.",
-    version="3.1.5",
+    description="API de texto, imagen IA, bot Telegram, Supabase, usuarios e historial.",
+    version="3.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -49,6 +49,9 @@ PLANES = {
     "basico": {"nombre": "BÁSICO", "dias": 7, "mensajes": 50, "imagenes": 5},
     "premium": {"nombre": "PREMIUM", "dias": 30, "mensajes": 300, "imagenes": 30},
     "pro": {"nombre": "PRO", "dias": 30, "mensajes": 1000, "imagenes": 100},
+    "elite": {"nombre": "ELITE", "dias": 30, "mensajes": 3000, "imagenes": 300},
+    "estudiante": {"nombre": "ESTUDIANTE", "dias": 30, "mensajes": 500, "imagenes": 50},
+    "app": {"nombre": "APP", "dias": 30, "mensajes": 999999, "imagenes": 999999},
     "amigo": {"nombre": "AMIGO", "dias": 9999, "mensajes": 999999, "imagenes": 999999}
 }
 
@@ -109,6 +112,14 @@ class ImagenRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=500)
     ancho: int = Field(default=768, ge=256, le=1024)
     alto: int = Field(default=768, ge=256, le=1024)
+
+
+class UsuarioSyncRequest(BaseModel):
+    email: str
+    plan: str = "gratis"
+    estado: str = "activo"
+    registrado: str | None = None
+    plan_vence: str | None = None
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -284,7 +295,7 @@ def activar_usuario(user_id, plan):
     plan = plan.lower().strip()
 
     if plan not in PLANES:
-        return False, "Plan inválido. Usa: basico, premium, pro o amigo."
+        return False, "Plan inválido. Usa: basico, premium, pro, elite, estudiante, app o amigo."
 
     usuarios = cargar_usuarios()
     user_id = str(user_id)
@@ -565,6 +576,7 @@ def home():
             "/api/texto-app",
             "/api/imagen",
             "/api/historial",
+            "/api/usuario/sync",
             "/supabase/test",
             "/supabase/test-historial",
             "/telegram/webhook",
@@ -651,6 +663,44 @@ def api_historial(email: str = "usuario@app.com", limit: int = 50):
         "ok": response.status_code == 200,
         "status_code": response.status_code,
         "historial": response.json() if response.status_code == 200 else response.text
+    }
+
+
+@app.post("/api/usuario/sync")
+def api_usuario_sync(data: UsuarioSyncRequest):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase no configurado"
+        )
+
+    email = data.email.strip().lower()
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Email vacío")
+
+    usuario_data = {
+        "email": email,
+        "plan": data.plan,
+        "estado": data.estado,
+        "registrado": data.registrado,
+        "plan_vence": data.plan_vence
+    }
+
+    response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/usuarios?on_conflict=email",
+        headers={
+            **supabase_headers(prefer=True),
+            "Prefer": "resolution=merge-duplicates,return=representation"
+        },
+        json=usuario_data,
+        timeout=30
+    )
+
+    return {
+        "ok": response.status_code in [200, 201],
+        "status_code": response.status_code,
+        "usuario": response.json() if response.status_code in [200, 201] else response.text
     }
 
 
