@@ -14,7 +14,7 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="AMERICO IA CORPORATION",
     description="API de texto, imagen IA, bot Telegram y sistema premium.",
-    version="3.1.3",
+    version="3.1.4",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -114,6 +114,51 @@ class ImagenRequest(BaseModel):
 def verificar_api_key(x_api_key: str | None):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="API key incorrecta")
+
+
+def supabase_headers(prefer: bool = False):
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    if prefer:
+        headers["Prefer"] = "return=representation"
+
+    return headers
+
+
+def guardar_historial_supabase(
+    email: str,
+    tipo: str,
+    entrada: str = "",
+    respuesta: str = "",
+    imagen_url: str | None = None,
+    plan: str = "gratis"
+):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return False
+
+    data = {
+        "email": email,
+        "tipo": tipo,
+        "entrada": entrada,
+        "respuesta": respuesta,
+        "imagen_url": imagen_url,
+        "plan": plan
+    }
+
+    try:
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/historiales",
+            headers=supabase_headers(prefer=True),
+            json=data,
+            timeout=30
+        )
+        return response.status_code in [200, 201]
+    except Exception:
+        return False
 
 
 def cargar_usuarios():
@@ -216,7 +261,7 @@ def verificar_permiso(chat_id, tipo_uso):
             guardar_usuarios(usuarios)
             return False, (
                 "Llegaste al límite gratuito de 20 mensajes.\n\n"
-                "Para seguir navegando y usando AMERICO IA CORPORATION, compra un plan premium con /premium "
+                "Para seguir usando AMERICO IA CORPORATION, compra un plan premium con /premium "
                 "o vuelve a intentarlo en 2 horas."
             )
         usuario["mensajes_usados"] = usuario.get("mensajes_usados", 0) + 1
@@ -520,6 +565,7 @@ def home():
             "/api/texto-app",
             "/api/imagen",
             "/supabase/test",
+            "/supabase/test-historial",
             "/telegram/webhook",
             "/telegram/set-webhook"
         ]
@@ -542,15 +588,40 @@ def supabase_test():
             detail="Supabase no configurado en Render"
         )
 
-    headers = {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
-        "Content-Type": "application/json"
-    }
-
     response = requests.get(
         f"{SUPABASE_URL}/rest/v1/usuarios?select=*&limit=1",
-        headers=headers,
+        headers=supabase_headers(),
+        timeout=30
+    )
+
+    return {
+        "ok": response.status_code in [200, 201],
+        "status_code": response.status_code,
+        "respuesta": response.text
+    }
+
+
+@app.get("/supabase/test-historial")
+def supabase_test_historial():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase no configurado"
+        )
+
+    data = {
+        "email": "prueba@app.com",
+        "tipo": "texto",
+        "entrada": "Hola prueba Supabase",
+        "respuesta": "Historial guardado correctamente",
+        "imagen_url": None,
+        "plan": "gratis"
+    }
+
+    response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/historiales",
+        headers=supabase_headers(prefer=True),
+        json=data,
         timeout=30
     )
 
@@ -566,6 +637,14 @@ def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
     resultado = responder_mensaje(data.mensaje)
 
+    guardar_historial_supabase(
+        email="api@externa.com",
+        tipo="texto",
+        entrada=data.mensaje,
+        respuesta=resultado["respuesta"],
+        plan="api"
+    )
+
     return {
         "api": "texto",
         "creador": "Americo Centeno Colque",
@@ -577,11 +656,19 @@ def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
 
 
 @app.get("/api/texto-app")
-def api_texto_app(mensaje: str):
+def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gratis"):
     if not mensaje or not mensaje.strip():
         raise HTTPException(status_code=400, detail="Mensaje vacío")
 
     resultado = responder_mensaje(mensaje)
+
+    guardar_historial_supabase(
+        email=email,
+        tipo="texto",
+        entrada=mensaje,
+        respuesta=resultado["respuesta"],
+        plan=plan
+    )
 
     return {
         "api": "texto-app",
@@ -596,6 +683,15 @@ def api_imagen(data: ImagenRequest, x_api_key: str | None = Header(default=None)
     verificar_api_key(x_api_key)
 
     url_imagen = crear_url_pollinations(data.prompt, data.ancho, data.alto)
+
+    guardar_historial_supabase(
+        email="api@externa.com",
+        tipo="imagen",
+        entrada=data.prompt,
+        respuesta="Imagen generada",
+        imagen_url=url_imagen,
+        plan="api"
+    )
 
     return {
         "api": "imagen",
@@ -779,6 +875,15 @@ async def telegram_webhook(update: dict):
 
         url_imagen = crear_url_pollinations(prompt, 768, 768)
 
+        guardar_historial_supabase(
+            email=f"telegram_{chat_id}@bot.com",
+            tipo="imagen",
+            entrada=prompt,
+            respuesta="Imagen generada por bot",
+            imagen_url=url_imagen,
+            plan="telegram"
+        )
+
         enviado = telegram_enviar_imagen_url(
             chat_id,
             url_imagen,
@@ -797,6 +902,15 @@ async def telegram_webhook(update: dict):
         return {"ok": True}
 
     resultado = responder_mensaje(texto)
+
+    guardar_historial_supabase(
+        email=f"telegram_{chat_id}@bot.com",
+        tipo="texto",
+        entrada=texto,
+        respuesta=resultado["respuesta"],
+        plan="telegram"
+    )
+
     telegram_enviar_mensaje(chat_id, resultado["respuesta"])
 
     return {"ok": True}
