@@ -33,36 +33,11 @@ YAPE_QR_FILE = "yape_qr.jpg"
 
 
 PLANES = {
-    "gratis": {
-        "nombre": "GRATIS",
-        "dias": 0,
-        "mensajes": 20,
-        "imagenes": 10
-    },
-    "basico": {
-        "nombre": "BÁSICO",
-        "dias": 7,
-        "mensajes": 50,
-        "imagenes": 5
-    },
-    "premium": {
-        "nombre": "PREMIUM",
-        "dias": 30,
-        "mensajes": 300,
-        "imagenes": 30
-    },
-    "pro": {
-        "nombre": "PRO",
-        "dias": 30,
-        "mensajes": 1000,
-        "imagenes": 100
-    },
-    "amigo": {
-        "nombre": "AMIGO",
-        "dias": 9999,
-        "mensajes": 999999,
-        "imagenes": 999999
-    }
+    "gratis": {"nombre": "GRATIS", "dias": 0, "mensajes": 20, "imagenes": 10},
+    "basico": {"nombre": "BÁSICO", "dias": 7, "mensajes": 50, "imagenes": 5},
+    "premium": {"nombre": "PREMIUM", "dias": 30, "mensajes": 300, "imagenes": 30},
+    "pro": {"nombre": "PRO", "dias": 30, "mensajes": 1000, "imagenes": 100},
+    "amigo": {"nombre": "AMIGO", "dias": 9999, "mensajes": 999999, "imagenes": 999999}
 }
 
 
@@ -100,7 +75,7 @@ Incluye:
 Yape
 
 👤 Titular del Yape:
-Said
+Americo Centeno
 
 📌 Instrucciones:
 1. Escanea el QR de Yape.
@@ -132,7 +107,6 @@ def verificar_api_key(x_api_key: str | None):
 def cargar_usuarios():
     if not os.path.exists(USUARIOS_FILE):
         return {}
-
     try:
         with open(USUARIOS_FILE, "r", encoding="utf-8") as archivo:
             return json.load(archivo)
@@ -178,7 +152,6 @@ def crear_usuario_si_no_existe(chat_id):
 def resetear_gratis_si_pasaron_2_horas(usuario):
     if usuario.get("plan") == "gratis":
         inicio = usuario.get("inicio_periodo", "")
-
         if pasaron_2_horas(inicio):
             usuario["mensajes_usados"] = 0
             usuario["imagenes_usadas"] = 0
@@ -234,7 +207,6 @@ def verificar_permiso(chat_id, tipo_uso):
                 "Para seguir navegando y usando AMERICO IA CORPORATION, compra un plan premium con /premium "
                 "o vuelve a intentarlo en 2 horas."
             )
-
         usuario["mensajes_usados"] = usuario.get("mensajes_usados", 0) + 1
 
     if tipo_uso == "imagen":
@@ -245,7 +217,6 @@ def verificar_permiso(chat_id, tipo_uso):
                 "Para seguir generando imágenes, compra un plan premium con /premium "
                 "o vuelve a intentarlo en 2 horas."
             )
-
         usuario["imagenes_usadas"] = usuario.get("imagenes_usadas", 0) + 1
 
     guardar_usuarios(usuarios)
@@ -488,24 +459,12 @@ def procesar_voucher(mensaje, chat_id):
     botones = {
         "inline_keyboard": [
             [
-                {
-                    "text": "✅ BÁSICO",
-                    "callback_data": f"activar:{user_id}:basico"
-                },
-                {
-                    "text": "💎 PREMIUM",
-                    "callback_data": f"activar:{user_id}:premium"
-                }
+                {"text": "✅ BÁSICO", "callback_data": f"activar:{user_id}:basico"},
+                {"text": "💎 PREMIUM", "callback_data": f"activar:{user_id}:premium"}
             ],
             [
-                {
-                    "text": "🚀 PRO",
-                    "callback_data": f"activar:{user_id}:pro"
-                },
-                {
-                    "text": "🤝 AMIGO",
-                    "callback_data": f"activar:{user_id}:amigo"
-                }
+                {"text": "🚀 PRO", "callback_data": f"activar:{user_id}:pro"},
+                {"text": "🤝 AMIGO", "callback_data": f"activar:{user_id}:amigo"}
             ]
         ]
     }
@@ -561,12 +520,8 @@ def health():
 
 
 @app.post("/api/texto")
-def api_texto(
-    data: TextoRequest,
-    x_api_key: str | None = Header(default=None)
-):
+def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
-
     resultado = responder_mensaje(data.mensaje)
 
     return {
@@ -580,17 +535,10 @@ def api_texto(
 
 
 @app.post("/api/imagen")
-def api_imagen(
-    data: ImagenRequest,
-    x_api_key: str | None = Header(default=None)
-):
+def api_imagen(data: ImagenRequest, x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
 
-    url_imagen = crear_url_pollinations(
-        data.prompt,
-        data.ancho,
-        data.alto
-    )
+    url_imagen = crear_url_pollinations(data.prompt, data.ancho, data.alto)
 
     return {
         "api": "imagen",
@@ -650,13 +598,10 @@ async def telegram_webhook(update: dict):
         return {"ok": True}
 
     mensaje = update.get("message", {})
-
     chat = mensaje.get("chat", {})
     chat_id = chat.get("id")
-
     usuario = mensaje.get("from", {})
     user_id = str(usuario.get("id", ""))
-
     texto = mensaje.get("text", "")
 
     if not chat_id:
@@ -669,10 +614,7 @@ async def telegram_webhook(update: dict):
         return {"ok": True}
 
     if not texto:
-        telegram_enviar_mensaje(
-            chat_id,
-            "Solo puedo responder mensajes de texto o recibir vouchers en imagen."
-        )
+        telegram_enviar_mensaje(chat_id, "Solo puedo responder mensajes de texto o recibir vouchers en imagen.")
         return {"ok": True}
 
     texto = texto.strip()
@@ -704,11 +646,7 @@ async def telegram_webhook(update: dict):
                     "El usuario ya fue notificado correctamente."
                 )
 
-                telegram_enviar_mensaje(
-                    usuario_id,
-                    mensaje_sistema_activado(nombre_plan)
-                )
-
+                telegram_enviar_mensaje(usuario_id, mensaje_sistema_activado(nombre_plan))
             else:
                 telegram_enviar_mensaje(
                     chat_id,
@@ -752,13 +690,10 @@ async def telegram_webhook(update: dict):
             telegram_enviar_foto_archivo(
                 chat_id,
                 YAPE_QR_FILE,
-                "Escanea este QR para pagar por Yape. Titular: Said"
+                "Escanea este QR para pagar por Yape. Titular: Americo Centeno"
             )
         else:
-            telegram_enviar_mensaje(
-                chat_id,
-                "El QR de Yape todavía no está configurado."
-            )
+            telegram_enviar_mensaje(chat_id, "El QR de Yape todavía no está configurado.")
 
         return {"ok": True}
 
@@ -783,10 +718,7 @@ async def telegram_webhook(update: dict):
             )
             return {"ok": True}
 
-        telegram_enviar_mensaje(
-            chat_id,
-            "Generando imagen con IA, espera un momento..."
-        )
+        telegram_enviar_mensaje(chat_id, "Generando imagen con IA, espera un momento...")
 
         url_imagen = crear_url_pollinations(prompt, 768, 768)
 
@@ -797,10 +729,7 @@ async def telegram_webhook(update: dict):
         )
 
         if not enviado:
-            telegram_enviar_mensaje(
-                chat_id,
-                "No pude enviar la imagen. Intenta otra vez con otro prompt."
-            )
+            telegram_enviar_mensaje(chat_id, "No pude enviar la imagen. Intenta otra vez con otro prompt.")
 
         return {"ok": True}
 
@@ -811,11 +740,7 @@ async def telegram_webhook(update: dict):
         return {"ok": True}
 
     resultado = responder_mensaje(texto)
-
-    telegram_enviar_mensaje(
-        chat_id,
-        resultado["respuesta"]
-    )
+    telegram_enviar_mensaje(chat_id, resultado["respuesta"])
 
     return {"ok": True}
 
@@ -831,9 +756,7 @@ def telegram_set_webhook(x_api_key: str | None = Header(default=None)):
 
     response = requests.get(
         f"{TELEGRAM_API}/setWebhook",
-        params={
-            "url": webhook_url
-        },
+        params={"url": webhook_url},
         timeout=30
     )
 
@@ -847,9 +770,6 @@ def telegram_delete_webhook(x_api_key: str | None = Header(default=None)):
     if not TELEGRAM_API:
         raise HTTPException(status_code=500, detail="TELEGRAM_TOKEN no configurado")
 
-    response = requests.get(
-        f"{TELEGRAM_API}/deleteWebhook",
-        timeout=30
-    )
+    response = requests.get(f"{TELEGRAM_API}/deleteWebhook", timeout=30)
 
     return response.json()
