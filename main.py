@@ -14,7 +14,7 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="AMERICO IA CORPORATION",
     description="API de texto, imagen IA, bot Telegram y sistema premium.",
-    version="3.1.1",
+    version="3.1.2",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -513,6 +513,7 @@ def home():
         "gratis": "20 mensajes y 10 imágenes cada 2 horas",
         "endpoints": [
             "/api/texto",
+            "/api/texto-app",
             "/api/imagen",
             "/telegram/webhook",
             "/telegram/set-webhook"
@@ -539,6 +540,21 @@ def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
         "entrada": data.mensaje,
         "intencion": resultado["intencion"],
         "confianza": resultado["confianza"],
+        "respuesta": resultado["respuesta"]
+    }
+
+
+@app.get("/api/texto-app")
+def api_texto_app(mensaje: str):
+    if not mensaje or not mensaje.strip():
+        raise HTTPException(status_code=400, detail="Mensaje vacío")
+
+    resultado = responder_mensaje(mensaje)
+
+    return {
+        "api": "texto-app",
+        "creador": "Americo Centeno Colque",
+        "entrada": mensaje,
         "respuesta": resultado["respuesta"]
     }
 
