@@ -14,7 +14,7 @@ from modelo_texto import responder_mensaje
 app = FastAPI(
     title="AMERICO IA CORPORATION",
     description="API de texto, imagen IA, bot Telegram y sistema premium.",
-    version="3.1.2",
+    version="3.1.3",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -39,6 +39,9 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "8315143020")
 
 USUARIOS_FILE = "usuarios.json"
 YAPE_QR_FILE = "yape_qr.jpg"
+
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 
 PLANES = {
@@ -510,11 +513,13 @@ def home():
         "texto": "Groq IA",
         "imagen": "Pollinations AI",
         "premium": "activo",
+        "supabase_configurado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY),
         "gratis": "20 mensajes y 10 imágenes cada 2 horas",
         "endpoints": [
             "/api/texto",
             "/api/texto-app",
             "/api/imagen",
+            "/supabase/test",
             "/telegram/webhook",
             "/telegram/set-webhook"
         ]
@@ -526,6 +531,33 @@ def health():
     return {
         "status": "ok",
         "time": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/supabase/test")
+def supabase_test():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase no configurado en Render"
+        )
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/usuarios?select=*&limit=1",
+        headers=headers,
+        timeout=30
+    )
+
+    return {
+        "ok": response.status_code in [200, 201],
+        "status_code": response.status_code,
+        "respuesta": response.text
     }
 
 
