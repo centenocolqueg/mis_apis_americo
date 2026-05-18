@@ -13,8 +13,8 @@ from modelo_texto import responder_mensaje
 
 app = FastAPI(
     title="AMERICO IA CORPORATION",
-    description="API de texto, imagen IA, bot Telegram y sistema premium.",
-    version="3.1.4",
+    description="API de texto, imagen IA, bot Telegram, Supabase e historial.",
+    version="3.1.5",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -564,6 +564,7 @@ def home():
             "/api/texto",
             "/api/texto-app",
             "/api/imagen",
+            "/api/historial",
             "/supabase/test",
             "/supabase/test-historial",
             "/telegram/webhook",
@@ -629,6 +630,27 @@ def supabase_test_historial():
         "ok": response.status_code in [200, 201],
         "status_code": response.status_code,
         "respuesta": response.text
+    }
+
+
+@app.get("/api/historial")
+def api_historial(email: str = "usuario@app.com", limit: int = 50):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase no configurado"
+        )
+
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/historiales?select=*&email=eq.{email}&order=created_at.desc&limit={limit}",
+        headers=supabase_headers(),
+        timeout=30
+    )
+
+    return {
+        "ok": response.status_code == 200,
+        "status_code": response.status_code,
+        "historial": response.json() if response.status_code == 200 else response.text
     }
 
 
