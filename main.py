@@ -13,13 +13,17 @@ from modelo_texto import responder_mensaje
 
 APP_NAME = "CENTENO AI"
 EMPRESA = "AMERICO AI"
-FUNDADOR_CEO = "G. AMERICO CENTENO COLQUE"
+FUNDADOR = "G. AMERICO CENTENO COLQUE"
+FECHA_CREACION = "17/05/2026"
 
 
 app = FastAPI(
     title=APP_NAME,
-    description=f"{APP_NAME}, producto de {EMPRESA}. Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}.",
-    version="3.4.0",
+    description=(
+        f"{APP_NAME}, inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
+        f"Fundador: {FUNDADOR}. Fecha de creación oficial: {FECHA_CREACION}."
+    ),
+    version="4.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -73,8 +77,9 @@ PLANES_TEXTO = f"""
 ║            PLANES PREMIUM            ║
 ╚══════════════════════════════════════╝
 
-{APP_NAME} es un producto de {EMPRESA}.
-Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}
+{APP_NAME} es una inteligencia artificial empresarial creada por la empresa {EMPRESA}.
+Fundador: {FUNDADOR}
+Fecha de creación oficial: {FECHA_CREACION}
 
 ✅ PLAN BÁSICO - S/5
 Acceso por 7 días.
@@ -170,11 +175,14 @@ def es_dueno(email: str):
     return limpiar_email(email) in OWNER_EMAILS
 
 
-def marca_sistema():
+def identidad_sistema():
     return (
-        f"Soy {APP_NAME}, producto de {EMPRESA}. "
-        f"Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}. "
-        f"Respondo como asistente empresarial profesional de IA."
+        f"Bienvenido a {APP_NAME}. "
+        f"Soy una inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
+        f"Fundador: {FUNDADOR}. "
+        f"Fui creada oficialmente el {FECHA_CREACION} para brindar asistencia profesional "
+        "en programación, APIs, automatización, generación de imágenes, análisis de errores, "
+        "productividad y soluciones tecnológicas."
     )
 
 
@@ -213,6 +221,7 @@ def guardar_historial_supabase(
 def cargar_usuarios():
     if not os.path.exists(USUARIOS_FILE):
         return {}
+
     try:
         with open(USUARIOS_FILE, "r", encoding="utf-8") as archivo:
             return json.load(archivo)
@@ -258,6 +267,7 @@ def crear_usuario_si_no_existe(chat_id):
 def resetear_gratis_si_pasaron_2_horas(usuario):
     if usuario.get("plan") == "gratis":
         inicio = usuario.get("inicio_periodo", "")
+
         if pasaron_2_horas(inicio):
             usuario["mensajes_usados"] = 0
             usuario["imagenes_usadas"] = 0
@@ -291,6 +301,7 @@ def verificar_permiso(chat_id, tipo_uso):
     if vence != "sin_vencimiento":
         try:
             fecha_vence = datetime.strptime(vence, "%Y-%m-%d")
+
             if datetime.now() > fecha_vence:
                 usuario["plan"] = "gratis"
                 usuario["vence"] = "sin_vencimiento"
@@ -298,10 +309,12 @@ def verificar_permiso(chat_id, tipo_uso):
                 usuario["imagenes_usadas"] = 0
                 usuario["inicio_periodo"] = ahora_texto()
                 guardar_usuarios(usuarios)
+
                 return False, (
                     f"Tu plan venció.\n\n"
                     f"Para seguir usando {APP_NAME}, escribe /premium y renueva tu acceso."
                 )
+
         except Exception:
             pass
 
@@ -312,6 +325,7 @@ def verificar_permiso(chat_id, tipo_uso):
                 "Llegaste al límite gratuito de mensajes.\n\n"
                 "Compra un plan premium con /premium o vuelve a intentarlo en 2 horas."
             )
+
         usuario["mensajes_usados"] = usuario.get("mensajes_usados", 0) + 1
 
     if tipo_uso == "imagen":
@@ -321,6 +335,7 @@ def verificar_permiso(chat_id, tipo_uso):
                 "Llegaste al límite gratuito de imágenes.\n\n"
                 "Compra un plan premium con /premium o vuelve a intentarlo en 2 horas."
             )
+
         usuario["imagenes_usadas"] = usuario.get("imagenes_usadas", 0) + 1
 
     guardar_usuarios(usuarios)
@@ -331,7 +346,7 @@ def activar_usuario(user_id, plan):
     plan = plan.lower().strip()
 
     if plan not in PLANES:
-        return False, "Plan inválido. Usa: basico, premium, pro, elite, estudiante, app o amigo."
+        return False, "Plan inválido. Usa: basico, premium, pro, elite, estudiante, app, ilimitado o amigo."
 
     usuarios = cargar_usuarios()
     user_id = str(user_id)
@@ -409,14 +424,18 @@ def obtener_info_usuario(user_id):
 def mensaje_sistema_activado(nombre_plan):
     return (
         "**SISTEMA ACTIVADO**\n\n"
-        f"Bienvenido a {APP_NAME}, producto de {EMPRESA}. "
-        f"Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}. "
-        "Soy una plataforma inteligente corporativa diseñada para brindar asistencia técnica y profesional "
-        "en programación, APIs, bots, automatización, generación de imágenes y tecnología.\n\n"
+        f"Bienvenido a {APP_NAME}. "
+        f"Soy una inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
+        f"Fundador: {FUNDADOR}. "
+        f"Fui creada oficialmente el {FECHA_CREACION} para brindar asistencia profesional "
+        "en programación, APIs, automatización, generación de imágenes, análisis de errores, "
+        "productividad y soluciones tecnológicas.\n\n"
         "**ESTADO DEL SISTEMA**\n\n"
-        "- Lanzamiento oficial: 17/05/2026\n"
-        f"- Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}\n"
-        "- Plataforma tecnológica: Python, APIs inteligentes, servicios cloud, automatización y conexión con plataformas externas\n"
+        f"- Producto: {APP_NAME}\n"
+        f"- Empresa creadora: {EMPRESA}\n"
+        f"- Fundador: {FUNDADOR}\n"
+        f"- Fecha de creación oficial: {FECHA_CREACION}\n"
+        "- Plataforma tecnológica: Python, FastAPI, APIs inteligentes, Supabase, Render, Telegram Bot y automatización cloud\n"
         f"- Plan activo: {nombre_plan}\n\n"
         "**COMANDOS DISPONIBLES**\n\n"
         "- /premium: Ver planes disponibles.\n"
@@ -571,6 +590,7 @@ def procesar_voucher(mensaje, chat_id):
                 {"text": "👑 ELITE", "callback_data": f"activar:{user_id}:elite"}
             ],
             [
+                {"text": "♾️ ILIMITADO", "callback_data": f"activar:{user_id}:ilimitado"},
                 {"text": "🤝 AMIGO", "callback_data": f"activar:{user_id}:amigo"}
             ]
         ]
@@ -580,6 +600,8 @@ def procesar_voucher(mensaje, chat_id):
         "╔══════════════════════════════╗\n"
         "║       NUEVO VOUCHER YAPE     ║\n"
         "╚══════════════════════════════╝\n\n"
+        f"✅ Producto: {APP_NAME}\n"
+        f"✅ Empresa: {EMPRESA}\n"
         f"✅ Nombre: {nombre}\n"
         f"✅ Usuario: @{username}\n"
         f"✅ ID Telegram: {user_id}\n"
@@ -594,7 +616,7 @@ def procesar_voucher(mensaje, chat_id):
     telegram_enviar_mensaje(
         chat_id,
         "✅ Voucher recibido.\n\n"
-        "Tu comprobante fue enviado al administrador para revisión. "
+        f"Tu comprobante fue enviado al administrador de {APP_NAME} para revisión. "
         "Si el pago es válido, tu plan será activado."
     )
 
@@ -604,22 +626,27 @@ def home():
     return {
         "status": "online",
         "proyecto": APP_NAME,
-        "producto_de": EMPRESA,
-        "fundador_ceo": FUNDADOR_CEO,
+        "empresa_creadora": EMPRESA,
+        "fundador": FUNDADOR,
+        "fecha_creacion": FECHA_CREACION,
+        "descripcion": identidad_sistema(),
         "texto": "Groq IA",
         "imagen": "Pollinations AI",
         "premium": "activo",
         "supabase_configurado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY),
+        "telegram_configurado": bool(TELEGRAM_TOKEN),
         "gratis": "20 mensajes y 10 imágenes cada 2 horas",
         "endpoints": [
-            "/api/texto",
-            "/api/texto-app",
-            "/api/imagen",
+            "/",
+            "/health",
+            "/supabase/test",
+            "/supabase/test-historial",
             "/api/historial",
             "/api/usuarios",
             "/api/usuario/sync",
-            "/supabase/test",
-            "/supabase/test-historial",
+            "/api/texto",
+            "/api/texto-app",
+            "/api/imagen",
             "/telegram/webhook",
             "/telegram/set-webhook",
             "/telegram/delete-webhook"
@@ -631,6 +658,10 @@ def home():
 def health():
     return {
         "status": "ok",
+        "app": APP_NAME,
+        "empresa": EMPRESA,
+        "fundador": FUNDADOR,
+        "fecha_creacion": FECHA_CREACION,
         "time": datetime.utcnow().isoformat()
     }
 
@@ -781,8 +812,7 @@ def api_usuario_sync(data: UsuarioSyncRequest):
 def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
 
-    mensaje_final = f"{marca_sistema()}\n\nUsuario: {data.mensaje}"
-    resultado = responder_mensaje(mensaje_final)
+    resultado = responder_mensaje(data.mensaje)
 
     guardar_historial_supabase(
         email="api@externa.com",
@@ -795,8 +825,9 @@ def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
     return {
         "api": "texto",
         "app": APP_NAME,
-        "producto_de": EMPRESA,
-        "fundador_ceo": FUNDADOR_CEO,
+        "empresa": EMPRESA,
+        "fundador": FUNDADOR,
+        "fecha_creacion": FECHA_CREACION,
         "entrada": data.mensaje,
         "intencion": resultado.get("intencion"),
         "confianza": resultado.get("confianza"),
@@ -815,8 +846,7 @@ def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gra
     if es_dueno(email):
         plan = "ilimitado"
 
-    mensaje_final = f"{marca_sistema()}\n\nUsuario: {mensaje}"
-    resultado = responder_mensaje(mensaje_final)
+    resultado = responder_mensaje(mensaje)
 
     guardar_historial_supabase(
         email=email,
@@ -829,8 +859,9 @@ def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gra
     return {
         "api": "texto-app",
         "app": APP_NAME,
-        "producto_de": EMPRESA,
-        "fundador_ceo": FUNDADOR_CEO,
+        "empresa": EMPRESA,
+        "fundador": FUNDADOR,
+        "fecha_creacion": FECHA_CREACION,
         "entrada": mensaje,
         "respuesta": resultado["respuesta"]
     }
@@ -846,7 +877,7 @@ def api_imagen(data: ImagenRequest, x_api_key: str | None = Header(default=None)
         email="api@externa.com",
         tipo="imagen",
         entrada=data.prompt,
-        respuesta="Imagen generada",
+        respuesta=f"Imagen generada por {APP_NAME}",
         imagen_url=url_imagen,
         plan="api"
     )
@@ -854,8 +885,9 @@ def api_imagen(data: ImagenRequest, x_api_key: str | None = Header(default=None)
     return {
         "api": "imagen",
         "app": APP_NAME,
-        "producto_de": EMPRESA,
-        "fundador_ceo": FUNDADOR_CEO,
+        "empresa": EMPRESA,
+        "fundador": FUNDADOR,
+        "fecha_creacion": FECHA_CREACION,
         "prompt": data.prompt,
         "url": url_imagen
     }
@@ -889,6 +921,8 @@ async def telegram_webhook(update: dict):
                     telegram_enviar_mensaje(
                         ADMIN_CHAT_ID,
                         "✅ ACTIVACIÓN EXITOSA\n\n"
+                        f"Producto: {APP_NAME}\n"
+                        f"Empresa: {EMPRESA}\n"
                         f"Usuario ID: {usuario_id}\n"
                         f"Plan activado: {nombre_plan}\n\n"
                         "El usuario ya fue notificado correctamente."
@@ -927,7 +961,10 @@ async def telegram_webhook(update: dict):
         return {"ok": True}
 
     if not texto:
-        telegram_enviar_mensaje(chat_id, "Solo puedo responder mensajes de texto o recibir vouchers en imagen.")
+        telegram_enviar_mensaje(
+            chat_id,
+            "Solo puedo responder mensajes de texto o recibir vouchers en imagen."
+        )
         return {"ok": True}
 
     texto = texto.strip()
@@ -954,12 +991,17 @@ async def telegram_webhook(update: dict):
                 telegram_enviar_mensaje(
                     chat_id,
                     "✅ ACTIVACIÓN EXITOSA\n\n"
+                    f"Producto: {APP_NAME}\n"
+                    f"Empresa: {EMPRESA}\n"
                     f"Usuario ID: {usuario_id}\n"
                     f"Plan activado: {nombre_plan}\n\n"
                     "El usuario ya fue notificado correctamente."
                 )
 
-                telegram_enviar_mensaje(usuario_id, mensaje_sistema_activado(nombre_plan))
+                telegram_enviar_mensaje(
+                    usuario_id,
+                    mensaje_sistema_activado(nombre_plan)
+                )
             else:
                 telegram_enviar_mensaje(
                     chat_id,
@@ -987,8 +1029,10 @@ async def telegram_webhook(update: dict):
     if texto == "/start":
         telegram_enviar_mensaje(
             chat_id,
-            f"Hola. Soy {APP_NAME}, producto de {EMPRESA}.\n\n"
-            f"Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}.\n\n"
+            f"Bienvenido a {APP_NAME}.\n\n"
+            f"Soy una inteligencia artificial empresarial creada por la empresa {EMPRESA}.\n"
+            f"Fundador: {FUNDADOR}\n"
+            f"Fecha de creación oficial: {FECHA_CREACION}\n\n"
             "Puedes escribirme una pregunta normal o generar imágenes con:\n"
             "/imagen robot realista programando una API en Python\n\n"
             "Tu acceso gratis incluye 20 mensajes y 10 imágenes cada 2 horas.\n\n"
@@ -1007,7 +1051,10 @@ async def telegram_webhook(update: dict):
                 "Escanea este QR para pagar por Yape. Titular: Americo Centeno"
             )
         else:
-            telegram_enviar_mensaje(chat_id, "El QR de Yape todavía no está configurado.")
+            telegram_enviar_mensaje(
+                chat_id,
+                "El QR de Yape todavía no está configurado."
+            )
 
         return {"ok": True}
 
@@ -1028,11 +1075,14 @@ async def telegram_webhook(update: dict):
         if not prompt:
             telegram_enviar_mensaje(
                 chat_id,
-                "Escribe un prompt. Ejemplo:\n/imagen robot realista programando una api en python"
+                "Escribe un prompt. Ejemplo:\n/imagen robot realista programando una API en Python"
             )
             return {"ok": True}
 
-        telegram_enviar_mensaje(chat_id, "Generando imagen con IA, espera un momento...")
+        telegram_enviar_mensaje(
+            chat_id,
+            f"{APP_NAME} está generando tu imagen con IA. Espera un momento..."
+        )
 
         url_imagen = crear_url_pollinations(prompt, 768, 768)
 
@@ -1040,7 +1090,7 @@ async def telegram_webhook(update: dict):
             email=f"telegram_{chat_id}@bot.com",
             tipo="imagen",
             entrada=prompt,
-            respuesta="Imagen generada por bot",
+            respuesta=f"Imagen generada por {APP_NAME}",
             imagen_url=url_imagen,
             plan="telegram"
         )
@@ -1052,7 +1102,10 @@ async def telegram_webhook(update: dict):
         )
 
         if not enviado:
-            telegram_enviar_mensaje(chat_id, "No pude enviar la imagen. Intenta otra vez con otro prompt.")
+            telegram_enviar_mensaje(
+                chat_id,
+                "No pude enviar la imagen. Intenta otra vez con otro prompt."
+            )
 
         return {"ok": True}
 
@@ -1062,8 +1115,7 @@ async def telegram_webhook(update: dict):
         telegram_enviar_mensaje(chat_id, mensaje_permiso)
         return {"ok": True}
 
-    mensaje_final = f"{marca_sistema()}\n\nUsuario: {texto}"
-    resultado = responder_mensaje(mensaje_final)
+    resultado = responder_mensaje(texto)
 
     guardar_historial_supabase(
         email=f"telegram_{chat_id}@bot.com",
@@ -1083,7 +1135,10 @@ def telegram_set_webhook(x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
 
     if not TELEGRAM_API:
-        raise HTTPException(status_code=500, detail="TELEGRAM_TOKEN no configurado")
+        raise HTTPException(
+            status_code=500,
+            detail="TELEGRAM_TOKEN no configurado"
+        )
 
     webhook_url = f"{BASE_URL}/telegram/webhook"
 
@@ -1101,8 +1156,14 @@ def telegram_delete_webhook(x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
 
     if not TELEGRAM_API:
-        raise HTTPException(status_code=500, detail="TELEGRAM_TOKEN no configurado")
+        raise HTTPException(
+            status_code=500,
+            detail="TELEGRAM_TOKEN no configurado"
+        )
 
-    response = requests.get(f"{TELEGRAM_API}/deleteWebhook", timeout=30)
+    response = requests.get(
+        f"{TELEGRAM_API}/deleteWebhook",
+        timeout=30
+    )
 
     return response.json()
