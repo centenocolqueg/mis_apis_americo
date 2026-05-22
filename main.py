@@ -11,10 +11,15 @@ from pydantic import BaseModel, Field
 from modelo_texto import responder_mensaje
 
 
+APP_NAME = "CENTENO AI"
+EMPRESA = "AMERICO AI"
+FUNDADOR_CEO = "G. AMERICO CENTENO COLQUE"
+
+
 app = FastAPI(
-    title="AMERICO IA CORPORATION",
-    description="API de texto, imagen IA, bot Telegram, Supabase, usuarios e historial.",
-    version="3.2.0",
+    title=APP_NAME,
+    description=f"{APP_NAME}, producto de {EMPRESA}. Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}.",
+    version="3.4.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -43,6 +48,11 @@ YAPE_QR_FILE = "yape_qr.jpg"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
+OWNER_EMAILS = [
+    "centenocolqueg@gmail.com",
+    "profesionalhackeo19@gmail.com"
+]
+
 
 PLANES = {
     "gratis": {"nombre": "GRATIS", "dias": 0, "mensajes": 20, "imagenes": 10},
@@ -50,17 +60,21 @@ PLANES = {
     "premium": {"nombre": "PREMIUM", "dias": 30, "mensajes": 300, "imagenes": 30},
     "pro": {"nombre": "PRO", "dias": 30, "mensajes": 1000, "imagenes": 100},
     "elite": {"nombre": "ELITE", "dias": 30, "mensajes": 3000, "imagenes": 300},
+    "ilimitado": {"nombre": "ILIMITADO", "dias": 9999, "mensajes": 999999, "imagenes": 999999},
     "estudiante": {"nombre": "ESTUDIANTE", "dias": 30, "mensajes": 500, "imagenes": 50},
     "app": {"nombre": "APP", "dias": 30, "mensajes": 999999, "imagenes": 999999},
     "amigo": {"nombre": "AMIGO", "dias": 9999, "mensajes": 999999, "imagenes": 999999}
 }
 
 
-PLANES_TEXTO = """
+PLANES_TEXTO = f"""
 ╔══════════════════════════════════════╗
-║       💎 AMERICO IA CORPORATION      ║
+║              {APP_NAME}              ║
 ║            PLANES PREMIUM            ║
 ╚══════════════════════════════════════╝
+
+{APP_NAME} es un producto de {EMPRESA}.
+Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}
 
 ✅ PLAN BÁSICO - S/5
 Acceso por 7 días.
@@ -83,6 +97,13 @@ Incluye:
 • 100 imágenes IA
 • Uso avanzado
 • Ideal para estudiantes, programadores y creadores
+
+✅ PLAN ELITE - S/30
+Acceso por 30 días.
+Incluye:
+• 3000 mensajes con IA
+• 300 imágenes IA
+• Acceso empresarial
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -116,6 +137,7 @@ class ImagenRequest(BaseModel):
 
 class UsuarioSyncRequest(BaseModel):
     email: str
+    nombre: str | None = None
     plan: str = "gratis"
     estado: str = "activo"
     registrado: str | None = None
@@ -140,6 +162,22 @@ def supabase_headers(prefer: bool = False):
     return headers
 
 
+def limpiar_email(email: str):
+    return (email or "").strip().lower()
+
+
+def es_dueno(email: str):
+    return limpiar_email(email) in OWNER_EMAILS
+
+
+def marca_sistema():
+    return (
+        f"Soy {APP_NAME}, producto de {EMPRESA}. "
+        f"Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}. "
+        f"Respondo como asistente empresarial profesional de IA."
+    )
+
+
 def guardar_historial_supabase(
     email: str,
     tipo: str,
@@ -152,7 +190,7 @@ def guardar_historial_supabase(
         return False
 
     data = {
-        "email": email,
+        "email": limpiar_email(email),
         "tipo": tipo,
         "entrada": entrada,
         "respuesta": respuesta,
@@ -261,8 +299,8 @@ def verificar_permiso(chat_id, tipo_uso):
                 usuario["inicio_periodo"] = ahora_texto()
                 guardar_usuarios(usuarios)
                 return False, (
-                    "Tu plan venció.\n\n"
-                    "Para seguir usando AMERICO IA CORPORATION, escribe /premium y renueva tu acceso."
+                    f"Tu plan venció.\n\n"
+                    f"Para seguir usando {APP_NAME}, escribe /premium y renueva tu acceso."
                 )
         except Exception:
             pass
@@ -271,9 +309,8 @@ def verificar_permiso(chat_id, tipo_uso):
         if usuario.get("mensajes_usados", 0) >= datos_plan["mensajes"]:
             guardar_usuarios(usuarios)
             return False, (
-                "Llegaste al límite gratuito de 20 mensajes.\n\n"
-                "Para seguir usando AMERICO IA CORPORATION, compra un plan premium con /premium "
-                "o vuelve a intentarlo en 2 horas."
+                "Llegaste al límite gratuito de mensajes.\n\n"
+                "Compra un plan premium con /premium o vuelve a intentarlo en 2 horas."
             )
         usuario["mensajes_usados"] = usuario.get("mensajes_usados", 0) + 1
 
@@ -281,9 +318,8 @@ def verificar_permiso(chat_id, tipo_uso):
         if usuario.get("imagenes_usadas", 0) >= datos_plan["imagenes"]:
             guardar_usuarios(usuarios)
             return False, (
-                "Llegaste al límite gratuito de 10 imágenes.\n\n"
-                "Para seguir generando imágenes, compra un plan premium con /premium "
-                "o vuelve a intentarlo en 2 horas."
+                "Llegaste al límite gratuito de imágenes.\n\n"
+                "Compra un plan premium con /premium o vuelve a intentarlo en 2 horas."
             )
         usuario["imagenes_usadas"] = usuario.get("imagenes_usadas", 0) + 1
 
@@ -302,7 +338,7 @@ def activar_usuario(user_id, plan):
 
     datos_plan = PLANES[plan]
 
-    if plan == "amigo":
+    if plan in ["amigo", "ilimitado"]:
         vence = "sin_vencimiento"
     else:
         vence = (datetime.now() + timedelta(days=datos_plan["dias"])).strftime("%Y-%m-%d")
@@ -373,14 +409,14 @@ def obtener_info_usuario(user_id):
 def mensaje_sistema_activado(nombre_plan):
     return (
         "**SISTEMA ACTIVADO**\n\n"
-        "Bienvenido a AMERICO IA CORPORATION. "
-        "Soy la plataforma inteligente corporativa desarrollada por Americo Centeno Colque. "
-        "Mi objetivo es brindarte asistencia técnica y profesional en programación, APIs, bots, automatización, "
-        "generación de imágenes y otros temas relacionados con tecnología.\n\n"
+        f"Bienvenido a {APP_NAME}, producto de {EMPRESA}. "
+        f"Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}. "
+        "Soy una plataforma inteligente corporativa diseñada para brindar asistencia técnica y profesional "
+        "en programación, APIs, bots, automatización, generación de imágenes y tecnología.\n\n"
         "**ESTADO DEL SISTEMA**\n\n"
         "- Lanzamiento oficial: 17/05/2026\n"
-        "- Desarrollador principal: Americo Centeno Colque\n"
-        "- Plataforma tecnológica: Basada en Python, APIs inteligentes, servicios cloud, automatización y conexión con plataformas externas\n"
+        f"- Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}\n"
+        "- Plataforma tecnológica: Python, APIs inteligentes, servicios cloud, automatización y conexión con plataformas externas\n"
         f"- Plan activo: {nombre_plan}\n\n"
         "**COMANDOS DISPONIBLES**\n\n"
         "- /premium: Ver planes disponibles.\n"
@@ -532,6 +568,9 @@ def procesar_voucher(mensaje, chat_id):
             ],
             [
                 {"text": "🚀 PRO", "callback_data": f"activar:{user_id}:pro"},
+                {"text": "👑 ELITE", "callback_data": f"activar:{user_id}:elite"}
+            ],
+            [
                 {"text": "🤝 AMIGO", "callback_data": f"activar:{user_id}:amigo"}
             ]
         ]
@@ -564,8 +603,9 @@ def procesar_voucher(mensaje, chat_id):
 def home():
     return {
         "status": "online",
-        "proyecto": "AMERICO IA CORPORATION",
-        "creador": "Americo Centeno Colque",
+        "proyecto": APP_NAME,
+        "producto_de": EMPRESA,
+        "fundador_ceo": FUNDADOR_CEO,
         "texto": "Groq IA",
         "imagen": "Pollinations AI",
         "premium": "activo",
@@ -576,11 +616,13 @@ def home():
             "/api/texto-app",
             "/api/imagen",
             "/api/historial",
+            "/api/usuarios",
             "/api/usuario/sync",
             "/supabase/test",
             "/supabase/test-historial",
             "/telegram/webhook",
-            "/telegram/set-webhook"
+            "/telegram/set-webhook",
+            "/telegram/delete-webhook"
         ]
     }
 
@@ -653,6 +695,8 @@ def api_historial(email: str = "usuario@app.com", limit: int = 50):
             detail="Supabase no configurado"
         )
 
+    email = limpiar_email(email)
+
     response = requests.get(
         f"{SUPABASE_URL}/rest/v1/historiales?select=*&email=eq.{email}&order=created_at.desc&limit={limit}",
         headers=supabase_headers(),
@@ -666,6 +710,27 @@ def api_historial(email: str = "usuario@app.com", limit: int = 50):
     }
 
 
+@app.get("/api/usuarios")
+def api_usuarios(limit: int = 100):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase no configurado"
+        )
+
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/usuarios?select=*&order=created_at.desc&limit={limit}",
+        headers=supabase_headers(),
+        timeout=30
+    )
+
+    return {
+        "ok": response.status_code == 200,
+        "status_code": response.status_code,
+        "usuarios": response.json() if response.status_code == 200 else response.text
+    }
+
+
 @app.post("/api/usuario/sync")
 def api_usuario_sync(data: UsuarioSyncRequest):
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
@@ -674,15 +739,23 @@ def api_usuario_sync(data: UsuarioSyncRequest):
             detail="Supabase no configurado"
         )
 
-    email = data.email.strip().lower()
+    email = limpiar_email(data.email)
 
     if not email:
         raise HTTPException(status_code=400, detail="Email vacío")
 
+    plan_final = data.plan
+    estado_final = data.estado
+
+    if es_dueno(email):
+        plan_final = "ilimitado"
+        estado_final = "activo"
+
     usuario_data = {
         "email": email,
-        "plan": data.plan,
-        "estado": data.estado,
+        "nombre": data.nombre,
+        "plan": plan_final,
+        "estado": estado_final,
         "registrado": data.registrado,
         "plan_vence": data.plan_vence
     }
@@ -707,7 +780,9 @@ def api_usuario_sync(data: UsuarioSyncRequest):
 @app.post("/api/texto")
 def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
-    resultado = responder_mensaje(data.mensaje)
+
+    mensaje_final = f"{marca_sistema()}\n\nUsuario: {data.mensaje}"
+    resultado = responder_mensaje(mensaje_final)
 
     guardar_historial_supabase(
         email="api@externa.com",
@@ -719,10 +794,12 @@ def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
 
     return {
         "api": "texto",
-        "creador": "Americo Centeno Colque",
+        "app": APP_NAME,
+        "producto_de": EMPRESA,
+        "fundador_ceo": FUNDADOR_CEO,
         "entrada": data.mensaje,
-        "intencion": resultado["intencion"],
-        "confianza": resultado["confianza"],
+        "intencion": resultado.get("intencion"),
+        "confianza": resultado.get("confianza"),
         "respuesta": resultado["respuesta"]
     }
 
@@ -732,7 +809,14 @@ def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gra
     if not mensaje or not mensaje.strip():
         raise HTTPException(status_code=400, detail="Mensaje vacío")
 
-    resultado = responder_mensaje(mensaje)
+    email = limpiar_email(email)
+    plan = (plan or "gratis").strip().lower()
+
+    if es_dueno(email):
+        plan = "ilimitado"
+
+    mensaje_final = f"{marca_sistema()}\n\nUsuario: {mensaje}"
+    resultado = responder_mensaje(mensaje_final)
 
     guardar_historial_supabase(
         email=email,
@@ -744,7 +828,9 @@ def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gra
 
     return {
         "api": "texto-app",
-        "creador": "Americo Centeno Colque",
+        "app": APP_NAME,
+        "producto_de": EMPRESA,
+        "fundador_ceo": FUNDADOR_CEO,
         "entrada": mensaje,
         "respuesta": resultado["respuesta"]
     }
@@ -767,7 +853,9 @@ def api_imagen(data: ImagenRequest, x_api_key: str | None = Header(default=None)
 
     return {
         "api": "imagen",
-        "creador": "Americo Centeno Colque",
+        "app": APP_NAME,
+        "producto_de": EMPRESA,
+        "fundador_ceo": FUNDADOR_CEO,
         "prompt": data.prompt,
         "url": url_imagen
     }
@@ -899,7 +987,8 @@ async def telegram_webhook(update: dict):
     if texto == "/start":
         telegram_enviar_mensaje(
             chat_id,
-            "Hola. Soy AMERICO IA CORPORATION.\n\n"
+            f"Hola. Soy {APP_NAME}, producto de {EMPRESA}.\n\n"
+            f"Fundador CEO de {EMPRESA}: {FUNDADOR_CEO}.\n\n"
             "Puedes escribirme una pregunta normal o generar imágenes con:\n"
             "/imagen robot realista programando una API en Python\n\n"
             "Tu acceso gratis incluye 20 mensajes y 10 imágenes cada 2 horas.\n\n"
@@ -959,7 +1048,7 @@ async def telegram_webhook(update: dict):
         enviado = telegram_enviar_imagen_url(
             chat_id,
             url_imagen,
-            "Imagen generada por AMERICO IA CORPORATION"
+            f"Imagen generada por {APP_NAME}"
         )
 
         if not enviado:
@@ -973,7 +1062,8 @@ async def telegram_webhook(update: dict):
         telegram_enviar_mensaje(chat_id, mensaje_permiso)
         return {"ok": True}
 
-    resultado = responder_mensaje(texto)
+    mensaje_final = f"{marca_sistema()}\n\nUsuario: {texto}"
+    resultado = responder_mensaje(mensaje_final)
 
     guardar_historial_supabase(
         email=f"telegram_{chat_id}@bot.com",
