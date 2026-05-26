@@ -6,7 +6,12 @@ from datetime import datetime, timedelta, timezone
 APP_NAME = "CENTENO AI"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+
+SUPABASE_SERVICE_ROLE_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    or os.getenv("SUPABASE_KEY", "").strip()
+    or os.getenv("SUPABASE_ANON_KEY", "").strip()
+)
 
 OWNER_EMAILS = [
     "centenocolqueg@gmail.com",
@@ -190,6 +195,7 @@ def obtener_plan_usuario(email: str) -> dict | None:
         }
 
     if not supabase_disponible():
+        print("SUPABASE NO CONFIGURADO:", SUPABASE_URL, bool(SUPABASE_SERVICE_ROLE_KEY))
         return None
 
     try:
@@ -205,6 +211,7 @@ def obtener_plan_usuario(email: str) -> dict | None:
         )
 
         if r.status_code not in [200, 206]:
+            print("ERROR LEYENDO USUARIO_PLAN:", r.status_code, r.text)
             return None
 
         data = r.json()
@@ -214,7 +221,8 @@ def obtener_plan_usuario(email: str) -> dict | None:
 
         return None
 
-    except Exception:
+    except Exception as e:
+        print("EXCEPTION LEYENDO USUARIO_PLAN:", str(e))
         return None
 
 
@@ -222,6 +230,7 @@ def crear_usuario_plan_si_no_existe(email: str) -> dict | None:
     email = limpiar_email(email)
 
     if not email or email == "usuario@app.com":
+        print("EMAIL NO VALIDO PARA USUARIO_PLAN:", email)
         return None
 
     if es_admin(email):
@@ -233,6 +242,7 @@ def crear_usuario_plan_si_no_existe(email: str) -> dict | None:
         return usuario
 
     if not supabase_disponible():
+        print("NO SE PUEDE CREAR USUARIO_PLAN, SUPABASE NO CONFIGURADO")
         return None
 
     ahora = ahora_utc()
@@ -264,6 +274,7 @@ def crear_usuario_plan_si_no_existe(email: str) -> dict | None:
         )
 
         if r.status_code not in [200, 201]:
+            print("ERROR CREANDO USUARIO_PLAN:", r.status_code, r.text)
             return None
 
         data = r.json()
@@ -273,7 +284,8 @@ def crear_usuario_plan_si_no_existe(email: str) -> dict | None:
 
         return obtener_plan_usuario(email)
 
-    except Exception:
+    except Exception as e:
+        print("EXCEPTION CREANDO USUARIO_PLAN:", str(e))
         return None
 
 
@@ -310,9 +322,11 @@ def resetear_creditos_diarios_si_corresponde(usuario: dict) -> dict:
         if r.status_code in [200, 204]:
             usuario["creditos_usados_hoy"] = 0
             usuario["ultimo_reset_dia"] = hoy
+        else:
+            print("ERROR RESET CREDITOS:", r.status_code, r.text)
 
-    except Exception:
-        pass
+    except Exception as e:
+        print("EXCEPTION RESET CREDITOS:", str(e))
 
     return usuario
 
@@ -345,7 +359,7 @@ def volver_a_gratis(email: str) -> dict | None:
     ahora = ahora_utc()
 
     try:
-        requests.patch(
+        r = requests.patch(
             f"{SUPABASE_URL}/rest/v1/usuarios_planes?email=eq.{email}",
             headers=supabase_headers(),
             json={
@@ -362,8 +376,12 @@ def volver_a_gratis(email: str) -> dict | None:
             },
             timeout=15,
         )
-    except Exception:
-        pass
+
+        if r.status_code not in [200, 204]:
+            print("ERROR VOLVER A GRATIS:", r.status_code, r.text)
+
+    except Exception as e:
+        print("EXCEPTION VOLVER A GRATIS:", str(e))
 
     return obtener_plan_usuario(email)
 
@@ -436,9 +454,13 @@ def descontar_creditos(email: str, herramienta: str) -> bool:
             timeout=15,
         )
 
+        if r.status_code not in [200, 204]:
+            print("ERROR DESCONTANDO CREDITOS:", r.status_code, r.text)
+
         return r.status_code in [200, 204]
 
-    except Exception:
+    except Exception as e:
+        print("EXCEPTION DESCONTANDO CREDITOS:", str(e))
         return False
 
 
@@ -544,6 +566,7 @@ def activar_plan_app(email: str, plan: str, dias: int = 30) -> dict:
         )
 
         if r.status_code not in [200, 201]:
+            print("ERROR ACTIVANDO PLAN:", r.status_code, r.text)
             return {
                 "ok": False,
                 "mensaje": "No se pudo activar el plan",
@@ -559,6 +582,7 @@ def activar_plan_app(email: str, plan: str, dias: int = 30) -> dict:
         }
 
     except Exception as e:
+        print("EXCEPTION ACTIVANDO PLAN:", str(e))
         return {
             "ok": False,
             "mensaje": "Error activando plan",
@@ -570,9 +594,9 @@ def controlar_imagen_gratis(email: str) -> dict:
     """
     Control real de imágenes:
     - Admins ilimitados.
-    - Usuario normal se crea en usuarios_planes.
+    - Usuario normal debe existir o crearse en usuarios_planes.
     - Gratis: 10 imágenes, luego espera 40 minutos.
-    - Si no puede guardar contador, NO permite imagen ilimitada.
+    - Si no puede leer/guardar contador, bloquea imagen para evitar ilimitado gratis.
     """
     email = limpiar_email(email)
 
@@ -592,6 +616,7 @@ def controlar_imagen_gratis(email: str) -> dict:
         }
 
     if not supabase_disponible():
+        print("CONTROL IMAGEN: SUPABASE NO DISPONIBLE")
         return {
             "ok": False,
             "codigo": "supabase_no_configurado",
@@ -604,19 +629,11 @@ def controlar_imagen_gratis(email: str) -> dict:
         usuario = crear_usuario_plan_si_no_existe(email)
 
     if not usuario:
+        print("CONTROL IMAGEN: USUARIO_PLAN NO CREADO:", email)
         return {
             "ok": False,
             "codigo": "usuario_plan_no_creado",
             "mensaje": "No pudimos preparar tu cuenta para generar imágenes. Intenta nuevamente en unos minutos.",
-        }
-
-    usuario = obtener_plan_usuario(email)
-
-    if not usuario:
-        return {
-            "ok": False,
-            "codigo": "usuario_plan_no_encontrado",
-            "mensaje": "No pudimos validar tu cuenta para generar imágenes. Intenta nuevamente en unos minutos.",
         }
 
     plan_actual = str(usuario.get("plan_actual") or "gratis").lower()
@@ -646,7 +663,7 @@ def controlar_imagen_gratis(email: str) -> dict:
         proxima_dt = ahora + timedelta(minutes=40)
 
         try:
-            requests.patch(
+            r = requests.patch(
                 f"{SUPABASE_URL}/rest/v1/usuarios_planes?email=eq.{email}",
                 headers=supabase_headers(),
                 json={
@@ -656,8 +673,12 @@ def controlar_imagen_gratis(email: str) -> dict:
                 },
                 timeout=15,
             )
-        except Exception:
-            pass
+
+            if r.status_code not in [200, 204]:
+                print("ERROR ACTUALIZANDO ESPERA IMAGEN:", r.status_code, r.text)
+
+        except Exception as e:
+            print("EXCEPTION ACTUALIZANDO ESPERA IMAGEN:", str(e))
 
         return respuesta_imagen_gratis_espera(proxima_dt)
 
@@ -675,13 +696,15 @@ def controlar_imagen_gratis(email: str) -> dict:
         )
 
         if r.status_code not in [200, 204]:
+            print("ERROR ACTUALIZANDO LIMITE IMAGEN:", r.status_code, r.text)
             return {
                 "ok": False,
                 "codigo": "no_se_pudo_actualizar_limite",
                 "mensaje": "No pudimos validar tu límite de imágenes por ahora. Intenta nuevamente en unos minutos.",
             }
 
-    except Exception:
+    except Exception as e:
+        print("EXCEPTION ACTUALIZANDO LIMITE IMAGEN:", str(e))
         return {
             "ok": False,
             "codigo": "error_actualizando_limite",
