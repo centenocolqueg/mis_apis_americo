@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from modelo_texto import responder_mensaje
-from planes_app import controlar_imagen_gratis, obtener_plan_usuario
+from planes_app import controlar_imagen_gratis, obtener_plan_usuario, activar_plan_app
 
 
 APP_NAME = "CENTENO AI"
@@ -24,7 +24,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
         f"Fundador: {FUNDADOR}. Fecha de creación oficial: {FECHA_CREACION}."
     ),
-    version="4.2.0",
+    version="4.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -148,6 +148,12 @@ class UsuarioSyncRequest(BaseModel):
     estado: str = "activo"
     registrado: str | None = None
     plan_vence: str | None = None
+
+
+class GooglePlayActivarPlanRequest(BaseModel):
+    email: str
+    productId: str
+    purchaseToken: str
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -648,6 +654,7 @@ def home():
             "/api/texto",
             "/api/texto-app",
             "/api/imagen",
+            "/api/google-play/activar-plan",
             "/telegram/webhook",
             "/telegram/set-webhook",
             "/telegram/delete-webhook"
@@ -914,6 +921,59 @@ def api_imagen(
         "url": url_imagen,
         "image_url": url_imagen,
         "imagen_url": url_imagen
+    }
+
+
+@app.post("/api/google-play/activar-plan")
+def google_play_activar_plan(
+    data: GooglePlayActivarPlanRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    email = limpiar_email(data.email)
+    product_id = data.productId.strip()
+    purchase_token = data.purchaseToken.strip()
+
+    mapa_planes = {
+        "centeno_basico_25": "basico",
+        "centeno_pro_50": "pro",
+        "centeno_premium_90": "premium"
+    }
+
+    if product_id not in mapa_planes:
+        return {
+            "ok": False,
+            "mensaje": "Plan no válido",
+            "codigo": "plan_no_valido"
+        }
+
+    if not purchase_token:
+        return {
+            "ok": False,
+            "mensaje": "Pago no válido",
+            "codigo": "token_vacio"
+        }
+
+    plan_app = mapa_planes[product_id]
+
+    resultado = activar_plan_app(email=email, plan=plan_app, dias=30)
+
+    guardar_historial_supabase(
+        email=email,
+        tipo="plan",
+        entrada=f"Compra Google Play: {product_id}",
+        respuesta=f"Plan activado: {plan_app}",
+        plan=plan_app
+    )
+
+    return {
+        "ok": True,
+        "mensaje": "Plan activado correctamente",
+        "email": email,
+        "productId": product_id,
+        "plan": plan_app,
+        "resultado": resultado
     }
 
 
