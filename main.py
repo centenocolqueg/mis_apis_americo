@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from modelo_texto import responder_mensaje
-from planes_app import controlar_imagen_gratis, obtener_plan_usuario, activar_plan_app
+from planes_app import controlar_imagen_gratis, obtener_plan_usuario
 
 
 APP_NAME = "CENTENO AI"
@@ -24,7 +24,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
         f"Fundador: {FUNDADOR}. Fecha de creación oficial: {FECHA_CREACION}."
     ),
-    version="4.3.0",
+    version="4.4.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -936,9 +936,24 @@ def google_play_activar_plan(
     purchase_token = data.purchaseToken.strip()
 
     mapa_planes = {
-        "centeno_basico_25": "basico",
-        "centeno_pro_50": "pro",
-        "centeno_premium_90": "premium"
+        "centeno_basico_25": {
+            "plan": "basico",
+            "modelo": "ia_basica",
+            "creditos_mes": 3000,
+            "creditos_dia": 100
+        },
+        "centeno_pro_50": {
+            "plan": "pro",
+            "modelo": "ia_pro",
+            "creditos_mes": 8000,
+            "creditos_dia": 300
+        },
+        "centeno_premium_90": {
+            "plan": "premium",
+            "modelo": "ia_premium",
+            "creditos_mes": 18000,
+            "creditos_dia": 700
+        }
     }
 
     if product_id not in mapa_planes:
@@ -955,16 +970,57 @@ def google_play_activar_plan(
             "codigo": "token_vacio"
         }
 
-    plan_app = mapa_planes[product_id]
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return {
+            "ok": False,
+            "mensaje": "Supabase no configurado",
+            "codigo": "supabase_no_configurado"
+        }
 
-    resultado = activar_plan_app(email=email, plan=plan_app, dias=30)
+    datos = mapa_planes[product_id]
+    ahora = datetime.utcnow()
+    fecha_fin = ahora + timedelta(days=30)
+
+    usuario_plan_data = {
+        "email": email,
+        "plan_actual": datos["plan"],
+        "estado_plan": "activo",
+        "modelo_permitido": datos["modelo"],
+        "fecha_inicio_plan": ahora.isoformat(),
+        "fecha_fin_plan": fecha_fin.isoformat(),
+        "creditos_mes": datos["creditos_mes"],
+        "creditos_usados_mes": 0,
+        "creditos_dia": datos["creditos_dia"],
+        "creditos_usados_hoy": 0,
+        "ultimo_reset_dia": ahora.date().isoformat(),
+        "updated_at": ahora.isoformat()
+    }
+
+    response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/usuarios_planes?on_conflict=email",
+        headers={
+            **supabase_headers(prefer=True),
+            "Prefer": "resolution=merge-duplicates,return=representation"
+        },
+        json=usuario_plan_data,
+        timeout=30
+    )
+
+    if response.status_code not in [200, 201]:
+        return {
+            "ok": False,
+            "mensaje": "No se pudo activar el plan",
+            "codigo": "supabase_error",
+            "status_code": response.status_code,
+            "detalle": response.text
+        }
 
     guardar_historial_supabase(
         email=email,
         tipo="plan",
         entrada=f"Compra Google Play: {product_id}",
-        respuesta=f"Plan activado: {plan_app}",
-        plan=plan_app
+        respuesta=f"Plan activado: {datos['plan']}",
+        plan=datos["plan"]
     )
 
     return {
@@ -972,8 +1028,10 @@ def google_play_activar_plan(
         "mensaje": "Plan activado correctamente",
         "email": email,
         "productId": product_id,
-        "plan": plan_app,
-        "resultado": resultado
+        "plan": datos["plan"],
+        "creditos_mes": datos["creditos_mes"],
+        "creditos_dia": datos["creditos_dia"],
+        "fecha_fin_plan": fecha_fin.isoformat()
     }
 
 
