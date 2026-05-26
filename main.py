@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from modelo_texto import responder_mensaje
+from planes_app import controlar_imagen_gratis, obtener_plan_usuario
 
 
 APP_NAME = "CENTENO AI"
@@ -23,7 +24,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
         f"Fundador: {FUNDADOR}. Fecha de creación oficial: {FECHA_CREACION}."
     ),
-    version="4.1.0",
+    version="4.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -630,12 +631,12 @@ def home():
         "fundador": FUNDADOR,
         "fecha_creacion": FECHA_CREACION,
         "descripcion": identidad_sistema(),
-        "texto": "Groq IA",
-        "imagen": "Pollinations AI",
+        "texto": "IA de texto activa",
+        "imagen": "Generación de imágenes activa",
         "premium": "activo",
         "supabase_configurado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY),
         "telegram_configurado": bool(TELEGRAM_TOKEN),
-        "gratis": "20 mensajes y 10 imágenes cada 2 horas",
+        "gratis": "Texto gratis ilimitado en la app. Imágenes con límite temporal.",
         "endpoints": [
             "/",
             "/health",
@@ -868,28 +869,51 @@ def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gra
 
 
 @app.post("/api/imagen")
-def api_imagen(data: ImagenRequest, x_api_key: str | None = Header(default=None)):
+def api_imagen(
+    data: ImagenRequest,
+    email: str = "usuario@app.com",
+    x_api_key: str | None = Header(default=None)
+):
     verificar_api_key(x_api_key)
+
+    email = limpiar_email(email)
+
+    permiso_imagen = controlar_imagen_gratis(email)
+
+    if not permiso_imagen.get("ok"):
+        return {
+            "ok": False,
+            "api": "imagen",
+            "app": APP_NAME,
+            "mensaje": permiso_imagen.get("mensaje"),
+            "codigo": permiso_imagen.get("codigo", "limite")
+        }
 
     url_imagen = crear_url_pollinations(data.prompt, data.ancho, data.alto)
 
+    plan_usuario = obtener_plan_usuario(email)
+    plan_actual = (plan_usuario or {}).get("plan_actual", "gratis")
+
     guardar_historial_supabase(
-        email="api@externa.com",
+        email=email,
         tipo="imagen",
         entrada=data.prompt,
         respuesta=f"Imagen generada por {APP_NAME}",
         imagen_url=url_imagen,
-        plan="api"
+        plan=plan_actual
     )
 
     return {
+        "ok": True,
         "api": "imagen",
         "app": APP_NAME,
         "empresa": EMPRESA,
         "fundador": FUNDADOR,
         "fecha_creacion": FECHA_CREACION,
         "prompt": data.prompt,
-        "url": url_imagen
+        "url": url_imagen,
+        "image_url": url_imagen,
+        "imagen_url": url_imagen
     }
 
 
