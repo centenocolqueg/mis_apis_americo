@@ -27,7 +27,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
         f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.6.0",
+    version="4.7.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -63,6 +63,7 @@ IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
+IA_VISION_MODEL = os.getenv("IA_VISION_MODEL", "gpt-4.1-mini")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -234,8 +235,8 @@ class ChatUnificadoRequest(BaseModel):
 
 class AnalizarImagenRequest(BaseModel):
     email: str = "usuario@app.com"
-    image_url: str = Field(..., min_length=5, max_length=3000)
-    pregunta: str = Field(default="Analiza esta imagen de forma clara y profesional.", max_length=1500)
+    image_url: str = Field(..., min_length=5, max_length=25_000_000)
+    pregunta: str = Field(default="Analiza esta imagen de forma clara y profesional.", max_length=3000)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -798,8 +799,38 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
     }
 
 
+def normalizar_imagen_entrada(image_url: str) -> str:
+    imagen = (image_url or "").strip()
+
+    if not imagen:
+        return ""
+
+    if imagen.startswith("data:image"):
+        return imagen
+
+    if imagen.startswith("http://") or imagen.startswith("https://"):
+        return imagen
+
+    # Si Base44 manda base64 puro, lo convertimos a data URL.
+    if len(imagen) > 100 and all(c.isalnum() or c in "+/=\n\r" for c in imagen[:500]):
+        imagen = imagen.replace("\n", "").replace("\r", "")
+        return f"data:image/jpeg;base64,{imagen}"
+
+    return imagen
+
+
 def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
     email = limpiar_email(email)
+    image_url = normalizar_imagen_entrada(image_url)
+    pregunta = (pregunta or "Analiza esta imagen de forma clara y profesional.").strip()
+
+    if not image_url:
+        return {
+            "ok": False,
+            "mensaje": "No se encontró una imagen válida para analizar.",
+            "codigo": "imagen_vacia"
+        }
+
     plan_usuario = obtener_plan_app_seguro(email)
     plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
     es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
@@ -830,37 +861,50 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "codigo": "ia_no_configurada"
         }
 
-    modelo = IA_MODEL_PREMIUM if plan_actual == "premium" or es_admin else IA_MODEL_PRO
-
     try:
-        respuesta = openai_client.chat.completions.create(
-            model=modelo,
-            messages=[
+        # Responses API acepta URL pública y data:image base64.
+        respuesta = openai_client.responses.create(
+            model=IA_VISION_MODEL,
+            input=[
                 {
                     "role": "system",
-                    "content": PROMPT_CENTENO_AI
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": PROMPT_CENTENO_AI
+                        }
+                    ]
                 },
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "text",
-                            "text": pregunta or "Analiza esta imagen de forma clara y profesional."
+                            "type": "input_text",
+                            "text": pregunta
                         },
                         {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image_url
-                            }
+                            "type": "input_image",
+                            "image_url": image_url
                         }
                     ]
                 }
             ],
-            temperature=0.5,
-            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
+            max_output_tokens=max_tokens_por_plan(plan_actual, es_admin)
         )
 
-        texto = limpiar_respuesta_marca(respuesta.choices[0].message.content.strip())
+        texto = getattr(respuesta, "output_text", "") or ""
+
+        if not texto:
+            partes = []
+            for item in getattr(respuesta, "output", []) or []:
+                for contenido in getattr(item, "content", []) or []:
+                    if getattr(contenido, "text", None):
+                        partes.append(contenido.text)
+            texto = "\n".join(partes).strip()
+
+        texto = limpiar_respuesta_marca(
+            texto or "No pude leer la imagen con suficiente claridad. Intenta con otra foto más nítida."
+        )
 
         if not es_admin:
             registrar_credito_ia(email, plan_usuario)
@@ -870,7 +914,7 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             tipo="texto",
             entrada=f"Análisis de imagen: {pregunta}",
             respuesta=texto,
-            imagen_url=image_url,
+            imagen_url=image_url if len(image_url) < 5000 else None,
             plan=plan_actual
         )
 
@@ -879,6 +923,7 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "api": "analizar-imagen",
             "app": APP_NAME,
             "plan": plan_actual,
+            "tipo": "texto",
             "tipo_ia": "IA avanzada",
             "respuesta": texto
         }
@@ -886,7 +931,7 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
     except Exception:
         return {
             "ok": False,
-            "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente.",
+            "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente con otra imagen.",
             "codigo": "analisis_error"
         }
 
@@ -1394,6 +1439,7 @@ def home():
         "texto": "IA de texto activa",
         "imagen": "Generación de imágenes activa",
         "ia_avanzada_configurada": bool(openai_client),
+        "vision_configurada": bool(openai_client),
         "premium": "activo",
         "supabase_configurado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY),
         "telegram_configurado": bool(TELEGRAM_TOKEN),
@@ -1434,6 +1480,7 @@ def health():
         "ceo": CEO,
         "fecha_lanzamiento": FECHA_CREACION,
         "ia_avanzada_configurada": bool(openai_client),
+        "vision_configurada": bool(openai_client),
         "time": datetime.utcnow().isoformat()
     }
 
