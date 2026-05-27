@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import requests
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -26,7 +27,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
         f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.5.0",
+    version="4.6.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -60,6 +61,9 @@ IA_MODEL_BASICO = os.getenv("IA_MODEL_BASICO", "gpt-4.1-mini")
 IA_MODEL_PRO = os.getenv("IA_MODEL_PRO", "gpt-4.1")
 IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
 
+IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
+IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
+
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 OWNER_EMAILS = [
@@ -79,16 +83,7 @@ IDENTIDAD OFICIAL:
 - Representas una nueva generación de inteligencia artificial enfocada en productividad, conocimiento, creatividad, negocios, programación, educación y crecimiento personal.
 
 RESPUESTA OBLIGATORIA SOBRE TU CREADOR:
-Si el usuario pregunta:
-- "¿Quién te creó?"
-- "¿Quién es tu dueño?"
-- "¿Quién te desarrolló?"
-- "¿Quién hizo esta IA?"
-- "¿De dónde vienes?"
-- "¿Quién es tu CEO?"
-- "¿Quién te fundó?"
-
-Debes responder de forma elegante, segura y profesional:
+Si el usuario pregunta quién te creó, quién es tu dueño, quién te desarrolló, quién hizo esta IA, de dónde vienes, quién es tu CEO o quién te fundó, debes responder:
 "Fui creado por AMERICO AI, bajo la dirección de su CEO Guido Americo Centeno Colque. Soy CENTENO AI, una inteligencia artificial avanzada diseñada para ayudar a las personas a crear, aprender, resolver problemas y avanzar con una visión de alto nivel."
 
 REGLAS ESTRICTAS:
@@ -228,6 +223,19 @@ class GooglePlayActivarPlanRequest(BaseModel):
     email: str
     productId: str
     purchaseToken: str
+
+
+class ChatUnificadoRequest(BaseModel):
+    mensaje: str = Field(..., min_length=1, max_length=2000)
+    email: str = "usuario@app.com"
+    ancho: int = Field(default=768, ge=256, le=1024)
+    alto: int = Field(default=768, ge=256, le=1024)
+
+
+class AnalizarImagenRequest(BaseModel):
+    email: str = "usuario@app.com"
+    image_url: str = Field(..., min_length=5, max_length=3000)
+    pregunta: str = Field(default="Analiza esta imagen de forma clara y profesional.", max_length=1500)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -566,6 +574,410 @@ def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False
 
     except Exception:
         return "La IA avanzada está ocupada por el momento. Intenta nuevamente en unos minutos."
+
+
+def plan_permite_imagen_avanzada(plan_actual: str, es_admin: bool = False) -> bool:
+    if es_admin:
+        return True
+
+    plan = (plan_actual or "gratis").lower().strip()
+    return plan in ["pro", "premium"]
+
+
+def plan_permite_analizar_imagen(plan_actual: str, es_admin: bool = False) -> bool:
+    if es_admin:
+        return True
+
+    plan = (plan_actual or "gratis").lower().strip()
+    return plan in ["pro", "premium"]
+
+
+def es_solicitud_imagen(texto: str) -> bool:
+    texto = (texto or "").lower().strip()
+
+    claves = [
+        "genera una imagen",
+        "generar una imagen",
+        "genera imagen",
+        "generar imagen",
+        "crea una imagen",
+        "crear una imagen",
+        "crea imagen",
+        "crear imagen",
+        "haz una imagen",
+        "hacer una imagen",
+        "dibuja",
+        "dibujo",
+        "imagen de",
+        "foto de",
+        "crea foto",
+        "genera foto",
+        "banner",
+        "logo",
+        "portada",
+        "flyer",
+        "afiche",
+        "poster",
+        "miniatura",
+        "thumbnail",
+        "diseño visual",
+        "imagen para tiktok",
+        "imagen para whatsapp",
+        "imagen para instagram",
+        "imagen para facebook",
+        "imagen empresarial",
+        "imagen profesional"
+    ]
+
+    return any(clave in texto for clave in claves)
+
+
+def limpiar_prompt_visual(texto: str) -> str:
+    texto = (texto or "").strip()
+
+    frases = [
+        "genera una imagen de",
+        "generar una imagen de",
+        "genera imagen de",
+        "generar imagen de",
+        "crea una imagen de",
+        "crear una imagen de",
+        "crea imagen de",
+        "crear imagen de",
+        "haz una imagen de",
+        "hacer una imagen de",
+        "imagen de",
+        "foto de",
+        "crea foto de",
+        "genera foto de",
+        "dibuja"
+    ]
+
+    texto_limpio = texto
+
+    for frase in frases:
+        texto_limpio = texto_limpio.replace(frase, "", 1)
+        texto_limpio = texto_limpio.replace(frase.capitalize(), "", 1)
+
+    texto_limpio = texto_limpio.strip(" :,-.\n\t")
+
+    if not texto_limpio:
+        return ""
+
+    return texto_limpio
+
+
+def mejorar_prompt_visual(prompt: str) -> str:
+    prompt = (prompt or "").strip()
+
+    if not prompt:
+        return ""
+
+    return (
+        f"{prompt}. "
+        "Estilo premium empresarial, composición profesional, alta calidad visual, "
+        "iluminación moderna, detalles nítidos, aspecto limpio, elegante y comercial, "
+        "sin texto mal escrito, sin marcas externas, sin logos no solicitados."
+    )
+
+
+def generar_imagen_openai(prompt: str, ancho: int = 1024, alto: int = 1024, modelo: str = "gpt-image-1"):
+    if not openai_client:
+        return None, "La generación avanzada de imágenes no está disponible por el momento."
+
+    try:
+        prompt_final = mejorar_prompt_visual(prompt)
+
+        respuesta = openai_client.images.generate(
+            model=modelo,
+            prompt=prompt_final,
+            size="1024x1024"
+        )
+
+        item = respuesta.data[0]
+
+        if getattr(item, "b64_json", None):
+            image_url = f"data:image/png;base64,{item.b64_json}"
+            return image_url, None
+
+        if getattr(item, "url", None):
+            return item.url, None
+
+        return None, "No se pudo cargar la imagen generada. Intenta nuevamente."
+
+    except Exception:
+        return None, "La generación de imágenes está ocupada por el momento. Intenta nuevamente en unos minutos."
+
+
+def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int = 768):
+    email = limpiar_email(email)
+    prompt = (prompt or "").strip()
+
+    if not prompt:
+        return {
+            "ok": False,
+            "mensaje": "Describe qué imagen quieres crear y CENTENO AI la generará por ti.",
+            "codigo": "prompt_vacio"
+        }
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    permiso_imagen = controlar_imagen_gratis(email)
+
+    if not permiso_imagen.get("ok") and not es_admin:
+        return {
+            "ok": False,
+            "api": "imagen",
+            "app": APP_NAME,
+            "mensaje": permiso_imagen.get("mensaje"),
+            "codigo": permiso_imagen.get("codigo", "limite")
+        }
+
+    usar_imagen_avanzada = plan_permite_imagen_avanzada(plan_actual, es_admin)
+
+    if usar_imagen_avanzada:
+        permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+        if not permitido and not es_admin:
+            return {
+                "ok": False,
+                "api": "imagen",
+                "app": APP_NAME,
+                "mensaje": mensaje_creditos,
+                "codigo": "limite_creditos"
+            }
+
+        modelo_img = IA_IMAGE_MODEL_PREMIUM if plan_actual == "premium" or es_admin else IA_IMAGE_MODEL_PRO
+        url_imagen, error = generar_imagen_openai(prompt, ancho=ancho, alto=alto, modelo=modelo_img)
+
+        if error:
+            return {
+                "ok": False,
+                "api": "imagen",
+                "app": APP_NAME,
+                "mensaje": error,
+                "codigo": "imagen_avanzada_error"
+            }
+
+        if not es_admin:
+            registrar_credito_ia(email, plan_usuario)
+
+        tipo_imagen = "imagen_avanzada"
+    else:
+        url_imagen = crear_url_pollinations(prompt, ancho, alto)
+        tipo_imagen = "imagen_basica"
+
+    guardar_historial_supabase(
+        email=email,
+        tipo="imagen",
+        entrada=prompt,
+        respuesta=f"Imagen generada por {APP_NAME}",
+        imagen_url=url_imagen,
+        plan=plan_actual
+    )
+
+    return {
+        "ok": True,
+        "api": "imagen",
+        "app": APP_NAME,
+        "empresa": EMPRESA,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
+        "plan": plan_actual,
+        "tipo_imagen": tipo_imagen,
+        "prompt": prompt,
+        "url": url_imagen,
+        "image_url": url_imagen,
+        "imagen_url": url_imagen,
+        "mensaje": f"Imagen generada por {APP_NAME}"
+    }
+
+
+def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
+    email = limpiar_email(email)
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    if not plan_permite_analizar_imagen(plan_actual, es_admin):
+        return {
+            "ok": False,
+            "mensaje": "El análisis de imágenes está disponible en los planes Pro y Premium.",
+            "codigo": "plan_no_permite_analisis"
+        }
+
+    permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+    if not permitido and not es_admin:
+        return {
+            "ok": False,
+            "mensaje": mensaje_creditos,
+            "codigo": "limite_creditos"
+        }
+
+    if not openai_client:
+        return {
+            "ok": False,
+            "mensaje": "El análisis de imágenes no está disponible por el momento.",
+            "codigo": "ia_no_configurada"
+        }
+
+    modelo = IA_MODEL_PREMIUM if plan_actual == "premium" or es_admin else IA_MODEL_PRO
+
+    try:
+        respuesta = openai_client.chat.completions.create(
+            model=modelo,
+            messages=[
+                {
+                    "role": "system",
+                    "content": PROMPT_CENTENO_AI
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": pregunta or "Analiza esta imagen de forma clara y profesional."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url
+                            }
+                        }
+                    ]
+                }
+            ],
+            temperature=0.5,
+            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
+        )
+
+        texto = limpiar_respuesta_marca(respuesta.choices[0].message.content.strip())
+
+        if not es_admin:
+            registrar_credito_ia(email, plan_usuario)
+
+        guardar_historial_supabase(
+            email=email,
+            tipo="texto",
+            entrada=f"Análisis de imagen: {pregunta}",
+            respuesta=texto,
+            imagen_url=image_url,
+            plan=plan_actual
+        )
+
+        return {
+            "ok": True,
+            "api": "analizar-imagen",
+            "app": APP_NAME,
+            "plan": plan_actual,
+            "tipo_ia": "IA avanzada",
+            "respuesta": texto
+        }
+
+    except Exception:
+        return {
+            "ok": False,
+            "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente.",
+            "codigo": "analisis_error"
+        }
+
+
+def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: int = 768):
+    email = limpiar_email(email)
+    mensaje = (mensaje or "").strip()
+
+    if not mensaje:
+        return {
+            "ok": False,
+            "mensaje": "Escribe un mensaje para CENTENO AI.",
+            "codigo": "mensaje_vacio"
+        }
+
+    if es_solicitud_imagen(mensaje):
+        prompt_visual = limpiar_prompt_visual(mensaje)
+
+        if not prompt_visual:
+            return {
+                "ok": False,
+                "tipo": "imagen",
+                "mensaje": "Claro. Describe qué imagen quieres crear y CENTENO AI la generará por ti.",
+                "codigo": "prompt_imagen_vacio"
+            }
+
+        resultado_imagen = generar_imagen_por_plan(
+            email=email,
+            prompt=prompt_visual,
+            ancho=ancho,
+            alto=alto
+        )
+
+        resultado_imagen["tipo"] = "imagen"
+        resultado_imagen["respuesta"] = resultado_imagen.get("mensaje", f"Imagen generada por {APP_NAME}")
+
+        return resultado_imagen
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    if es_pregunta_identidad(mensaje):
+        respuesta = respuesta_identidad_oficial()
+        fuente = "identidad"
+    elif plan_app_activo(plan_usuario):
+        permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+        if not permitido:
+            respuesta = mensaje_creditos
+            fuente = "limite"
+        else:
+            respuesta = responder_ia_avanzada(
+                mensaje=mensaje,
+                plan_actual=plan_actual,
+                es_admin=es_admin
+            )
+            fuente = "ia_avanzada"
+
+            if respuesta:
+                registrar_credito_ia(email, plan_usuario)
+    else:
+        resultado = responder_mensaje(mensaje)
+        respuesta = limpiar_respuesta_marca(resultado["respuesta"])
+        fuente = "api_gratis"
+        plan_actual = "gratis"
+
+    guardar_historial_supabase(
+        email=email,
+        tipo="texto",
+        entrada=mensaje,
+        respuesta=respuesta,
+        plan=plan_actual
+    )
+
+    return {
+        "ok": True,
+        "api": "chat-unificado",
+        "app": APP_NAME,
+        "empresa": EMPRESA,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
+        "tipo": "texto",
+        "entrada": mensaje,
+        "plan": plan_actual,
+        "tipo_ia": "IA avanzada" if fuente == "ia_avanzada" else "IA estándar",
+        "respuesta": respuesta
+    }
 
 
 def cargar_usuarios():
@@ -989,8 +1401,8 @@ def home():
         "planes_app": {
             "gratis": "APIs actuales",
             "basico": "IA avanzada básica",
-            "pro": "IA avanzada intermedia",
-            "premium": "IA avanzada premium"
+            "pro": "IA avanzada intermedia + análisis de imagen",
+            "premium": "IA avanzada premium + imagen avanzada"
         },
         "endpoints": [
             "/",
@@ -1003,6 +1415,8 @@ def home():
             "/api/texto",
             "/api/texto-app",
             "/api/imagen",
+            "/api/chat-unificado",
+            "/api/analizar-imagen",
             "/api/google-play/activar-plan",
             "/telegram/webhook",
             "/telegram/set-webhook",
@@ -1206,60 +1620,12 @@ def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gra
     if not mensaje or not mensaje.strip():
         raise HTTPException(status_code=400, detail="Mensaje vacío")
 
-    email = limpiar_email(email)
-    mensaje = mensaje.strip()
-
-    plan_usuario = obtener_plan_app_seguro(email)
-    plan_actual = (plan_usuario.get("plan_actual") or plan or "gratis").lower().strip()
-    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
-
-    if es_admin:
-        plan_actual = "premium"
-
-    if es_pregunta_identidad(mensaje):
-        respuesta = respuesta_identidad_oficial()
-        fuente = "identidad"
-    elif plan_app_activo(plan_usuario):
-        permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
-
-        if not permitido:
-            respuesta = mensaje_creditos
-            fuente = "limite"
-        else:
-            respuesta = responder_ia_avanzada(
-                mensaje=mensaje,
-                plan_actual=plan_actual,
-                es_admin=es_admin
-            )
-            fuente = "ia_avanzada"
-
-            if respuesta:
-                registrar_credito_ia(email, plan_usuario)
-    else:
-        resultado = responder_mensaje(mensaje)
-        respuesta = limpiar_respuesta_marca(resultado["respuesta"])
-        fuente = "api_gratis"
-        plan_actual = "gratis"
-
-    guardar_historial_supabase(
+    return responder_chat_unificado(
         email=email,
-        tipo="texto",
-        entrada=mensaje,
-        respuesta=respuesta,
-        plan=plan_actual
+        mensaje=mensaje,
+        ancho=768,
+        alto=768
     )
-
-    return {
-        "api": "texto-app",
-        "app": APP_NAME,
-        "empresa": EMPRESA,
-        "ceo": CEO,
-        "fecha_lanzamiento": FECHA_CREACION,
-        "entrada": mensaje,
-        "plan": plan_actual,
-        "tipo_ia": "IA avanzada" if fuente == "ia_avanzada" else "IA estándar",
-        "respuesta": respuesta
-    }
 
 
 @app.post("/api/imagen")
@@ -1270,45 +1636,43 @@ def api_imagen(
 ):
     verificar_api_key(x_api_key)
 
-    email = limpiar_email(email)
-
-    permiso_imagen = controlar_imagen_gratis(email)
-
-    if not permiso_imagen.get("ok"):
-        return {
-            "ok": False,
-            "api": "imagen",
-            "app": APP_NAME,
-            "mensaje": permiso_imagen.get("mensaje"),
-            "codigo": permiso_imagen.get("codigo", "limite")
-        }
-
-    url_imagen = crear_url_pollinations(data.prompt, data.ancho, data.alto)
-
-    plan_usuario = obtener_plan_usuario(email)
-    plan_actual = (plan_usuario or {}).get("plan_actual", "gratis")
-
-    guardar_historial_supabase(
+    resultado = generar_imagen_por_plan(
         email=email,
-        tipo="imagen",
-        entrada=data.prompt,
-        respuesta=f"Imagen generada por {APP_NAME}",
-        imagen_url=url_imagen,
-        plan=plan_actual
+        prompt=data.prompt,
+        ancho=data.ancho,
+        alto=data.alto
     )
 
-    return {
-        "ok": True,
-        "api": "imagen",
-        "app": APP_NAME,
-        "empresa": EMPRESA,
-        "ceo": CEO,
-        "fecha_lanzamiento": FECHA_CREACION,
-        "prompt": data.prompt,
-        "url": url_imagen,
-        "image_url": url_imagen,
-        "imagen_url": url_imagen
-    }
+    return resultado
+
+
+@app.post("/api/chat-unificado")
+def api_chat_unificado(
+    data: ChatUnificadoRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return responder_chat_unificado(
+        email=data.email,
+        mensaje=data.mensaje,
+        ancho=data.ancho,
+        alto=data.alto
+    )
+
+
+@app.post("/api/analizar-imagen")
+def api_analizar_imagen(
+    data: AnalizarImagenRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return analizar_imagen_con_ia(
+        email=data.email,
+        image_url=data.image_url,
+        pregunta=data.pregunta
+    )
 
 
 @app.post("/api/google-play/activar-plan")
