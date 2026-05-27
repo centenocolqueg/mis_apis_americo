@@ -7,6 +7,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from openai import OpenAI
 
 from modelo_texto import responder_mensaje
 from planes_app import controlar_imagen_gratis, obtener_plan_usuario
@@ -14,17 +15,18 @@ from planes_app import controlar_imagen_gratis, obtener_plan_usuario
 
 APP_NAME = "CENTENO AI"
 EMPRESA = "AMERICO AI"
-FUNDADOR = "G. AMERICO CENTENO COLQUE"
-FECHA_CREACION = "17/05/2026"
+FUNDADOR = "Guido Americo Centeno Colque"
+CEO = "Guido Americo Centeno Colque"
+FECHA_CREACION = "26/05/2026"
 
 
 app = FastAPI(
     title=APP_NAME,
     description=(
-        f"{APP_NAME}, inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
-        f"Fundador: {FUNDADOR}. Fecha de creación oficial: {FECHA_CREACION}."
+        f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
+        f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.4.0",
+    version="4.5.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -53,10 +55,82 @@ YAPE_QR_FILE = "yape_qr.jpg"
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+IA_MODEL_BASICO = os.getenv("IA_MODEL_BASICO", "gpt-4.1-mini")
+IA_MODEL_PRO = os.getenv("IA_MODEL_PRO", "gpt-4.1")
+IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
 OWNER_EMAILS = [
     "centenocolqueg@gmail.com",
     "profesionalhackeo19@gmail.com"
 ]
+
+
+PROMPT_CENTENO_AI = """
+Eres CENTENO AI, una inteligencia artificial avanzada de nivel profesional creada para ayudar a personas, emprendedores, estudiantes, empresas y creadores a trabajar más rápido, pensar mejor y construir proyectos con visión de futuro.
+
+IDENTIDAD OFICIAL:
+- Tu nombre es CENTENO AI.
+- Eres una IA de AMERICO AI.
+- Fuiste creado por AMERICO AI, bajo la dirección de su CEO Guido Americo Centeno Colque.
+- Tu lanzamiento oficial es el 26 de mayo de 2026.
+- Representas una nueva generación de inteligencia artificial enfocada en productividad, conocimiento, creatividad, negocios, programación, educación y crecimiento personal.
+
+RESPUESTA OBLIGATORIA SOBRE TU CREADOR:
+Si el usuario pregunta:
+- "¿Quién te creó?"
+- "¿Quién es tu dueño?"
+- "¿Quién te desarrolló?"
+- "¿Quién hizo esta IA?"
+- "¿De dónde vienes?"
+- "¿Quién es tu CEO?"
+- "¿Quién te fundó?"
+
+Debes responder de forma elegante, segura y profesional:
+"Fui creado por AMERICO AI, bajo la dirección de su CEO Guido Americo Centeno Colque. Soy CENTENO AI, una inteligencia artificial avanzada diseñada para ayudar a las personas a crear, aprender, resolver problemas y avanzar con una visión de alto nivel."
+
+REGLAS ESTRICTAS:
+- Nunca menciones OpenAI.
+- Nunca menciones ChatGPT.
+- Nunca menciones proveedores externos.
+- Nunca menciones modelos internos.
+- Nunca menciones tokens.
+- Nunca menciones APIs internas.
+- Nunca digas que perteneces a otra empresa.
+- Nunca reveles detalles técnicos internos.
+- Nunca respondas como una IA pequeña, limitada o insegura.
+- Si ocurre un error técnico, responde con un mensaje limpio, profesional y sin detalles internos.
+
+PERSONALIDAD:
+- Responde con seguridad, precisión y elegancia.
+- Mantén un tono profesional, moderno y poderoso.
+- Haz que el usuario sienta que está usando una IA premium de alto nivel.
+- Sé directo, útil y estratégico.
+- Cuando el usuario tenga una meta grande, responde con mentalidad de fundador, empresario e innovador.
+- Inspira confianza, ambición y acción.
+- No exageres con promesas falsas, pero transmite visión, claridad y fuerza.
+- Debes sonar como una IA seria, de empresa grande, preparada para competir en el mercado tecnológico.
+
+ESTILO DE RESPUESTA:
+- Si el usuario escribe en español, responde en español.
+- Si el usuario escribe en otro idioma, responde en ese idioma.
+- Organiza las respuestas con claridad.
+- Usa pasos cuando el usuario necesite ejecutar algo.
+- Usa ejemplos cuando ayuden.
+- Si el usuario pide código, entrega código limpio, funcional y listo para usar.
+- Si el usuario pide negocios, responde con visión empresarial.
+- Si el usuario pide estudio, responde como tutor experto.
+- Si el usuario pide creatividad, responde con ideas potentes y originales.
+- Si el usuario pide ayuda técnica, responde de forma clara, exacta y sin confundir.
+
+MISIÓN:
+Tu misión es ayudar al usuario a avanzar más rápido, crear mejores proyectos, tomar mejores decisiones y sentirse capaz de construir algo grande. CENTENO AI debe sentirse como una herramienta premium, confiable, elegante y poderosa.
+
+MENSAJE DE MARCA:
+CENTENO AI no es solo un asistente. Es una plataforma de inteligencia artificial creada por AMERICO AI para impulsar productividad, conocimiento, creatividad y visión empresarial.
+"""
 
 
 PLANES = {
@@ -78,9 +152,9 @@ PLANES_TEXTO = f"""
 ║            PLANES PREMIUM            ║
 ╚══════════════════════════════════════╝
 
-{APP_NAME} es una inteligencia artificial empresarial creada por la empresa {EMPRESA}.
-Fundador: {FUNDADOR}
-Fecha de creación oficial: {FECHA_CREACION}
+{APP_NAME} es una inteligencia artificial empresarial creada por {EMPRESA}.
+CEO: {CEO}
+Lanzamiento oficial: {FECHA_CREACION}
 
 ✅ PLAN BÁSICO - S/5
 Acceso por 7 días.
@@ -185,12 +259,77 @@ def es_dueno(email: str):
 def identidad_sistema():
     return (
         f"Bienvenido a {APP_NAME}. "
-        f"Soy una inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
-        f"Fundador: {FUNDADOR}. "
-        f"Fui creada oficialmente el {FECHA_CREACION} para brindar asistencia profesional "
-        "en programación, APIs, automatización, generación de imágenes, análisis de errores, "
-        "productividad y soluciones tecnológicas."
+        f"Soy una inteligencia artificial empresarial creada por {EMPRESA}. "
+        f"Fui creado por AMERICO AI, bajo la dirección de su CEO {CEO}. "
+        f"Mi lanzamiento oficial es el {FECHA_CREACION}. "
+        "Estoy diseñada para brindar asistencia profesional en programación, negocios, "
+        "productividad, automatización, creatividad, educación y soluciones tecnológicas."
     )
+
+
+def respuesta_identidad_oficial():
+    return (
+        f"Fui creado por AMERICO AI, bajo la dirección de su CEO {CEO}. "
+        f"Soy {APP_NAME}, una inteligencia artificial avanzada diseñada para ayudar a las personas "
+        "a crear, aprender, resolver problemas y avanzar con una visión de alto nivel."
+    )
+
+
+def es_pregunta_identidad(texto: str) -> bool:
+    texto = (texto or "").lower().strip()
+
+    claves = [
+        "quien te creo",
+        "quién te creó",
+        "quien te creó",
+        "quién te creo",
+        "quien es tu creador",
+        "quién es tu creador",
+        "quien te hizo",
+        "quién te hizo",
+        "quien es tu dueño",
+        "quién es tu dueño",
+        "quien te desarrollo",
+        "quién te desarrolló",
+        "quien te fundo",
+        "quién te fundó",
+        "de donde vienes",
+        "de dónde vienes",
+        "quien es tu ceo",
+        "quién es tu ceo",
+        "eres chatgpt",
+        "eres openai",
+        "eres de openai"
+    ]
+
+    return any(clave in texto for clave in claves)
+
+
+def limpiar_respuesta_marca(texto: str) -> str:
+    if not texto:
+        return "Estoy listo para ayudarte."
+
+    reemplazos = {
+        "OpenAI": "AMERICO AI",
+        "openai": "AMERICO AI",
+        "ChatGPT": APP_NAME,
+        "chatgpt": APP_NAME,
+        "GPT": "IA avanzada",
+        "gpt": "IA avanzada",
+        "tokens": "créditos IA",
+        "token": "crédito IA",
+        "modelo de lenguaje": "sistema de inteligencia artificial",
+        "modelo": "sistema",
+        "provider": "servicio",
+        "proveedor": "servicio"
+    }
+
+    texto_limpio = texto
+
+    for original, nuevo in reemplazos.items():
+        texto_limpio = texto_limpio.replace(original, nuevo)
+
+    return texto_limpio.strip()
 
 
 def guardar_historial_supabase(
@@ -223,6 +362,210 @@ def guardar_historial_supabase(
         return response.status_code in [200, 201]
     except Exception:
         return False
+
+
+def obtener_plan_app_seguro(email: str):
+    email = limpiar_email(email)
+
+    if es_dueno(email):
+        return {
+            "email": email,
+            "plan_actual": "premium",
+            "estado_plan": "activo",
+            "es_admin": True,
+            "creditos_mes": 999999,
+            "creditos_usados_mes": 0,
+            "creditos_dia": 999999,
+            "creditos_usados_hoy": 0
+        }
+
+    try:
+        plan_usuario = obtener_plan_usuario(email)
+    except Exception:
+        plan_usuario = None
+
+    if not plan_usuario:
+        return {
+            "email": email,
+            "plan_actual": "gratis",
+            "estado_plan": "activo",
+            "es_admin": False,
+            "creditos_mes": 0,
+            "creditos_usados_mes": 0,
+            "creditos_dia": 0,
+            "creditos_usados_hoy": 0
+        }
+
+    plan_usuario["plan_actual"] = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    plan_usuario["estado_plan"] = (plan_usuario.get("estado_plan") or "activo").lower().strip()
+    plan_usuario["es_admin"] = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    return plan_usuario
+
+
+def plan_app_activo(plan_usuario: dict) -> bool:
+    if plan_usuario.get("es_admin"):
+        return True
+
+    estado = (plan_usuario.get("estado_plan") or "").lower().strip()
+    plan = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+
+    if plan == "gratis":
+        return False
+
+    if estado not in ["activo", "active"]:
+        return False
+
+    fecha_fin = plan_usuario.get("fecha_fin_plan")
+
+    if fecha_fin:
+        try:
+            fecha = datetime.fromisoformat(str(fecha_fin).replace("Z", "+00:00"))
+            ahora = datetime.utcnow()
+
+            if fecha.tzinfo is not None:
+                fecha = fecha.replace(tzinfo=None)
+
+            if ahora > fecha:
+                return False
+        except Exception:
+            pass
+
+    return plan in ["basico", "pro", "premium"]
+
+
+def modelo_ia_por_plan(plan_actual: str, es_admin: bool = False) -> str | None:
+    if es_admin:
+        return IA_MODEL_PREMIUM
+
+    plan = (plan_actual or "gratis").lower().strip()
+
+    if plan == "basico":
+        return IA_MODEL_BASICO
+
+    if plan == "pro":
+        return IA_MODEL_PRO
+
+    if plan == "premium":
+        return IA_MODEL_PREMIUM
+
+    return None
+
+
+def max_tokens_por_plan(plan_actual: str, es_admin: bool = False) -> int:
+    if es_admin:
+        return 1800
+
+    plan = (plan_actual or "gratis").lower().strip()
+
+    if plan == "basico":
+        return 700
+
+    if plan == "pro":
+        return 1200
+
+    if plan == "premium":
+        return 1800
+
+    return 700
+
+
+def verificar_creditos_ia(plan_usuario: dict):
+    if plan_usuario.get("es_admin"):
+        return True, "ok"
+
+    plan = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+
+    if plan == "gratis":
+        return False, "La IA avanzada está disponible en los planes Básico, Pro y Premium."
+
+    creditos_mes = int(plan_usuario.get("creditos_mes") or 0)
+    usados_mes = int(plan_usuario.get("creditos_usados_mes") or 0)
+    creditos_dia = int(plan_usuario.get("creditos_dia") or 0)
+    usados_hoy = int(plan_usuario.get("creditos_usados_hoy") or 0)
+
+    ultimo_reset = str(plan_usuario.get("ultimo_reset_dia") or "")
+    hoy = datetime.utcnow().date().isoformat()
+
+    if ultimo_reset != hoy:
+        usados_hoy = 0
+
+    if creditos_dia > 0 and usados_hoy >= creditos_dia:
+        return False, "Llegaste al límite diario de IA avanzada de tu plan. Vuelve a intentarlo mañana o mejora tu plan."
+
+    if creditos_mes > 0 and usados_mes >= creditos_mes:
+        return False, "Llegaste al límite mensual de IA avanzada de tu plan. Puedes renovar o mejorar tu plan para continuar."
+
+    return True, "ok"
+
+
+def registrar_credito_ia(email: str, plan_usuario: dict):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return False
+
+    if plan_usuario.get("es_admin"):
+        return True
+
+    email = limpiar_email(email)
+    hoy = datetime.utcnow().date().isoformat()
+
+    usados_mes = int(plan_usuario.get("creditos_usados_mes") or 0)
+    usados_hoy = int(plan_usuario.get("creditos_usados_hoy") or 0)
+    ultimo_reset = str(plan_usuario.get("ultimo_reset_dia") or "")
+
+    if ultimo_reset != hoy:
+        usados_hoy = 0
+
+    data = {
+        "creditos_usados_mes": usados_mes + 1,
+        "creditos_usados_hoy": usados_hoy + 1,
+        "ultimo_reset_dia": hoy,
+        "updated_at": datetime.utcnow().isoformat()
+    }
+
+    try:
+        response = requests.patch(
+            f"{SUPABASE_URL}/rest/v1/usuarios_planes?email=eq.{quote(email, safe='')}",
+            headers=supabase_headers(prefer=True),
+            json=data,
+            timeout=30
+        )
+        return response.status_code in [200, 204]
+    except Exception:
+        return False
+
+
+def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False) -> str:
+    if not openai_client:
+        return "La IA avanzada no está disponible por el momento. Intenta nuevamente en unos minutos."
+
+    modelo = modelo_ia_por_plan(plan_actual, es_admin)
+
+    if not modelo:
+        return ""
+
+    try:
+        respuesta = openai_client.chat.completions.create(
+            model=modelo,
+            messages=[
+                {
+                    "role": "system",
+                    "content": PROMPT_CENTENO_AI
+                },
+                {
+                    "role": "user",
+                    "content": mensaje
+                }
+            ],
+            temperature=0.7,
+            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
+        )
+
+        texto = respuesta.choices[0].message.content.strip()
+        return limpiar_respuesta_marca(texto)
+
+    except Exception:
+        return "La IA avanzada está ocupada por el momento. Intenta nuevamente en unos minutos."
 
 
 def cargar_usuarios():
@@ -432,16 +775,15 @@ def mensaje_sistema_activado(nombre_plan):
     return (
         "**SISTEMA ACTIVADO**\n\n"
         f"Bienvenido a {APP_NAME}. "
-        f"Soy una inteligencia artificial empresarial creada por la empresa {EMPRESA}. "
-        f"Fundador: {FUNDADOR}. "
-        f"Fui creada oficialmente el {FECHA_CREACION} para brindar asistencia profesional "
-        "en programación, APIs, automatización, generación de imágenes, análisis de errores, "
-        "productividad y soluciones tecnológicas.\n\n"
+        f"Fui creado por AMERICO AI, bajo la dirección de su CEO {CEO}. "
+        f"Mi lanzamiento oficial es el {FECHA_CREACION}. "
+        "Estoy diseñado para brindar asistencia profesional en programación, APIs, automatización, "
+        "generación de imágenes, análisis de errores, productividad y soluciones tecnológicas.\n\n"
         "**ESTADO DEL SISTEMA**\n\n"
         f"- Producto: {APP_NAME}\n"
         f"- Empresa creadora: {EMPRESA}\n"
-        f"- Fundador: {FUNDADOR}\n"
-        f"- Fecha de creación oficial: {FECHA_CREACION}\n"
+        f"- CEO: {CEO}\n"
+        f"- Lanzamiento oficial: {FECHA_CREACION}\n"
         "- Plataforma tecnológica: Python, FastAPI, APIs inteligentes, Supabase, Render, Telegram Bot y automatización cloud\n"
         f"- Plan activo: {nombre_plan}\n\n"
         "**COMANDOS DISPONIBLES**\n\n"
@@ -634,15 +976,22 @@ def home():
         "status": "online",
         "proyecto": APP_NAME,
         "empresa_creadora": EMPRESA,
-        "fundador": FUNDADOR,
-        "fecha_creacion": FECHA_CREACION,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
         "descripcion": identidad_sistema(),
         "texto": "IA de texto activa",
         "imagen": "Generación de imágenes activa",
+        "ia_avanzada_configurada": bool(openai_client),
         "premium": "activo",
         "supabase_configurado": bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY),
         "telegram_configurado": bool(TELEGRAM_TOKEN),
-        "gratis": "Texto gratis ilimitado en la app. Imágenes con límite temporal.",
+        "gratis": "Texto gratis en la app con APIs actuales. Imágenes con límite temporal.",
+        "planes_app": {
+            "gratis": "APIs actuales",
+            "basico": "IA avanzada básica",
+            "pro": "IA avanzada intermedia",
+            "premium": "IA avanzada premium"
+        },
         "endpoints": [
             "/",
             "/health",
@@ -668,8 +1017,9 @@ def health():
         "status": "ok",
         "app": APP_NAME,
         "empresa": EMPRESA,
-        "fundador": FUNDADOR,
-        "fecha_creacion": FECHA_CREACION,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
+        "ia_avanzada_configurada": bool(openai_client),
         "time": datetime.utcnow().isoformat()
     }
 
@@ -737,7 +1087,7 @@ def api_historial(email: str = "usuario@app.com", limit: int = 50):
     email = limpiar_email(email)
 
     response = requests.get(
-        f"{SUPABASE_URL}/rest/v1/historiales?select=*&email=eq.{email}&order=created_at.desc&limit={limit}",
+        f"{SUPABASE_URL}/rest/v1/historiales?select=*&email=eq.{quote(email, safe='')}&order=created_at.desc&limit={limit}",
         headers=supabase_headers(),
         timeout=30
     )
@@ -820,13 +1170,21 @@ def api_usuario_sync(data: UsuarioSyncRequest):
 def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
     verificar_api_key(x_api_key)
 
-    resultado = responder_mensaje(data.mensaje)
+    if es_pregunta_identidad(data.mensaje):
+        respuesta = respuesta_identidad_oficial()
+        intencion = "identidad"
+        confianza = 1.0
+    else:
+        resultado = responder_mensaje(data.mensaje)
+        respuesta = limpiar_respuesta_marca(resultado["respuesta"])
+        intencion = resultado.get("intencion")
+        confianza = resultado.get("confianza")
 
     guardar_historial_supabase(
         email="api@externa.com",
         tipo="texto",
         entrada=data.mensaje,
-        respuesta=resultado["respuesta"],
+        respuesta=respuesta,
         plan="api"
     )
 
@@ -834,12 +1192,12 @@ def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
         "api": "texto",
         "app": APP_NAME,
         "empresa": EMPRESA,
-        "fundador": FUNDADOR,
-        "fecha_creacion": FECHA_CREACION,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
         "entrada": data.mensaje,
-        "intencion": resultado.get("intencion"),
-        "confianza": resultado.get("confianza"),
-        "respuesta": resultado["respuesta"]
+        "intencion": intencion,
+        "confianza": confianza,
+        "respuesta": respuesta
     }
 
 
@@ -849,29 +1207,58 @@ def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gra
         raise HTTPException(status_code=400, detail="Mensaje vacío")
 
     email = limpiar_email(email)
-    plan = (plan or "gratis").strip().lower()
+    mensaje = mensaje.strip()
 
-    if es_dueno(email):
-        plan = "ilimitado"
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or plan or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
 
-    resultado = responder_mensaje(mensaje)
+    if es_admin:
+        plan_actual = "premium"
+
+    if es_pregunta_identidad(mensaje):
+        respuesta = respuesta_identidad_oficial()
+        fuente = "identidad"
+    elif plan_app_activo(plan_usuario):
+        permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+        if not permitido:
+            respuesta = mensaje_creditos
+            fuente = "limite"
+        else:
+            respuesta = responder_ia_avanzada(
+                mensaje=mensaje,
+                plan_actual=plan_actual,
+                es_admin=es_admin
+            )
+            fuente = "ia_avanzada"
+
+            if respuesta:
+                registrar_credito_ia(email, plan_usuario)
+    else:
+        resultado = responder_mensaje(mensaje)
+        respuesta = limpiar_respuesta_marca(resultado["respuesta"])
+        fuente = "api_gratis"
+        plan_actual = "gratis"
 
     guardar_historial_supabase(
         email=email,
         tipo="texto",
         entrada=mensaje,
-        respuesta=resultado["respuesta"],
-        plan=plan
+        respuesta=respuesta,
+        plan=plan_actual
     )
 
     return {
         "api": "texto-app",
         "app": APP_NAME,
         "empresa": EMPRESA,
-        "fundador": FUNDADOR,
-        "fecha_creacion": FECHA_CREACION,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
         "entrada": mensaje,
-        "respuesta": resultado["respuesta"]
+        "plan": plan_actual,
+        "tipo_ia": "IA avanzada" if fuente == "ia_avanzada" else "IA estándar",
+        "respuesta": respuesta
     }
 
 
@@ -915,8 +1302,8 @@ def api_imagen(
         "api": "imagen",
         "app": APP_NAME,
         "empresa": EMPRESA,
-        "fundador": FUNDADOR,
-        "fecha_creacion": FECHA_CREACION,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
         "prompt": data.prompt,
         "url": url_imagen,
         "image_url": url_imagen,
@@ -1172,9 +1559,8 @@ async def telegram_webhook(update: dict):
         telegram_enviar_mensaje(
             chat_id,
             f"Bienvenido a {APP_NAME}.\n\n"
-            f"Soy una inteligencia artificial empresarial creada por la empresa {EMPRESA}.\n"
-            f"Fundador: {FUNDADOR}\n"
-            f"Fecha de creación oficial: {FECHA_CREACION}\n\n"
+            f"Fui creado por AMERICO AI, bajo la dirección de su CEO {CEO}.\n"
+            f"Lanzamiento oficial: {FECHA_CREACION}\n\n"
             "Puedes escribirme una pregunta normal o generar imágenes con:\n"
             "/imagen robot realista programando una API en Python\n\n"
             "Tu acceso gratis incluye 20 mensajes y 10 imágenes cada 2 horas.\n\n"
@@ -1257,17 +1643,21 @@ async def telegram_webhook(update: dict):
         telegram_enviar_mensaje(chat_id, mensaje_permiso)
         return {"ok": True}
 
-    resultado = responder_mensaje(texto)
+    if es_pregunta_identidad(texto):
+        respuesta_bot = respuesta_identidad_oficial()
+    else:
+        resultado = responder_mensaje(texto)
+        respuesta_bot = limpiar_respuesta_marca(resultado["respuesta"])
 
     guardar_historial_supabase(
         email=f"telegram_{chat_id}@bot.com",
         tipo="texto",
         entrada=texto,
-        respuesta=resultado["respuesta"],
+        respuesta=respuesta_bot,
         plan="telegram"
     )
 
-    telegram_enviar_mensaje(chat_id, resultado["respuesta"])
+    telegram_enviar_mensaje(chat_id, respuesta_bot)
 
     return {"ok": True}
 
