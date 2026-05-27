@@ -928,11 +928,12 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "respuesta": texto
         }
 
-    except Exception:
+    except Exception as e:
         return {
             "ok": False,
-            "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente con otra imagen.",
-            "codigo": "analisis_error"
+            "mensaje": "No se pudo analizar la imagen.",
+            "codigo": "analisis_error",
+            "detalle": str(e)
         }
 
 
