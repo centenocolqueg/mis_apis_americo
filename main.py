@@ -799,39 +799,136 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
     }
 
 
-def normalizar_imagen_para_vision(image_url: str) -> str:
+def convertir_thumb_wikimedia_a_original(url: str) -> str:
     """
-    Acepta URL pública o data:image base64.
-    Si recibe URL pública, intenta convertirla a data:image/base64 para evitar bloqueos de descarga externa.
-    Si no puede convertir, devuelve la URL original.
+    Convierte URLs tipo /thumb/ de Wikimedia a la URL original directa.
+    Ejemplo:
+    https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Fronalpstock_big.jpg/800px-Fronalpstock_big.jpg
+    ->
+    https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg
+    """
+    url = (url or "").strip()
+
+    marca = "/wikipedia/commons/thumb/"
+    if "upload.wikimedia.org" not in url or marca not in url:
+        return url
+
+    try:
+        base, resto = url.split(marca, 1)
+        partes = resto.split("/")
+
+        if len(partes) >= 3:
+            ruta_original = "/".join(partes[:3])
+            return f"{base}/wikipedia/commons/{ruta_original}"
+    except Exception:
+        pass
+
+    return url
+
+
+def descargar_imagen_como_data_url(url: str) -> tuple[str | None, str | None]:
+    """
+    Descarga una imagen pública y la convierte a data:image/...;base64.
+    Esto evita que la IA tenga que descargar URLs externas que a veces fallan con 400.
+    """
+    url = (url or "").strip()
+
+    if not url.startswith(("http://", "https://")):
+        return None, "url_invalida"
+
+    candidatos = []
+    url_original_wikimedia = convertir_thumb_wikimedia_a_original(url)
+
+    if url_original_wikimedia and url_original_wikimedia != url:
+        candidatos.append(url_original_wikimedia)
+
+    candidatos.append(url)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/125.0 Safari/537.36 CENTENO-AI/1.0",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Referer": "https://commons.wikimedia.org/"
+    }
+
+    ultimo_error = None
+
+    for candidato in candidatos:
+        try:
+            response = requests.get(
+                candidato,
+                timeout=45,
+                headers=headers,
+                allow_redirects=True
+            )
+
+            if response.status_code != 200:
+                ultimo_error = f"status_{response.status_code}"
+                continue
+
+            contenido = response.content or b""
+
+            if len(contenido) < 20:
+                ultimo_error = "contenido_vacio"
+                continue
+
+            if len(contenido) > 15 * 1024 * 1024:
+                ultimo_error = "imagen_muy_grande"
+                continue
+
+            content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip().lower()
+
+            if not content_type.startswith("image/"):
+                if contenido[:3] == b"\xff\xd8\xff":
+                    content_type = "image/jpeg"
+                elif contenido[:8] == b"\x89PNG\r\n\x1a\n":
+                    content_type = "image/png"
+                elif contenido[:4] == b"RIFF":
+                    content_type = "image/webp"
+                else:
+                    ultimo_error = f"content_type_no_imagen_{content_type}"
+                    continue
+
+            imagen_b64 = base64.b64encode(contenido).decode("utf-8")
+            return f"data:{content_type};base64,{imagen_b64}", None
+
+        except Exception as error:
+            ultimo_error = str(error)[:300]
+            continue
+
+    return None, ultimo_error or "no_se_pudo_descargar"
+
+
+def normalizar_imagen_para_vision(image_url: str) -> tuple[str | None, str, str | None]:
+    """
+    Acepta:
+    - data:image/...;base64,... desde cámara/galería/Base44
+    - URL pública
+
+    Devuelve:
+    - imagen lista para visión
+    - formato usado: base64/url/error
+    - error interno si no se pudo preparar
     """
     image_url = (image_url or "").strip()
 
+    if not image_url:
+        return None, "error", "imagen_vacia"
+
     if image_url.startswith("data:image/"):
-        return image_url
+        return image_url, "base64", None
 
-    if image_url.startswith("http://") or image_url.startswith("https://"):
-        try:
-            response = requests.get(
-                image_url,
-                timeout=30,
-                headers={
-                    "User-Agent": f"{APP_NAME}/1.0"
-                }
-            )
+    if image_url.startswith(("http://", "https://")):
+        data_url, error = descargar_imagen_como_data_url(image_url)
 
-            if response.status_code == 200 and response.content:
-                content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+        if data_url:
+            return data_url, "base64", None
 
-                if not content_type.startswith("image/"):
-                    content_type = "image/jpeg"
+        # Último respaldo: dejar URL directa, pero marcando que no se pudo convertir.
+        # Si la IA tampoco puede descargarla, debug_admin mostrará el error real.
+        return image_url, "url", error
 
-                imagen_b64 = base64.b64encode(response.content).decode("utf-8")
-                return f"data:{content_type};base64,{imagen_b64}"
-        except Exception:
-            pass
-
-    return image_url
+    return None, "error", "formato_no_soportado"
 
 
 def extraer_texto_responses_api(respuesta) -> str:
@@ -888,8 +985,21 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
         }
 
     pregunta_final = pregunta or "Analiza esta imagen de forma clara y profesional."
-    imagen_final = normalizar_imagen_para_vision(image_url)
+    imagen_final, imagen_formato, error_preparacion_imagen = normalizar_imagen_para_vision(image_url)
     modelo_vision = IA_VISION_MODEL or modelo_ia_por_plan(plan_actual, es_admin) or IA_MODEL_PREMIUM
+
+    if not imagen_final:
+        respuesta_error = {
+            "ok": False,
+            "mensaje": "No se pudo preparar la imagen. Intenta con otra imagen o usa una foto desde la galería.",
+            "codigo": "imagen_no_preparada"
+        }
+
+        if es_admin:
+            respuesta_error["debug_admin"] = error_preparacion_imagen
+            respuesta_error["imagen_formato"] = imagen_formato
+
+        return respuesta_error
 
     try:
         # Método principal: Responses API con entrada visual moderna.
@@ -996,7 +1106,8 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
         if es_admin:
             respuesta_error["debug_admin"] = str(error)[:1000]
             respuesta_error["modelo_vision"] = modelo_vision
-            respuesta_error["imagen_formato"] = "base64" if imagen_final.startswith("data:image/") else "url"
+            respuesta_error["imagen_formato"] = imagen_formato
+            respuesta_error["error_preparacion_imagen"] = error_preparacion_imagen
 
         return respuesta_error
 
