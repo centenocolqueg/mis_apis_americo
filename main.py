@@ -30,7 +30,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
         f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.9.0",
+    version="4.9.1",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -63,6 +63,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 IA_MODEL_BASICO = os.getenv("IA_MODEL_BASICO", "gpt-4.1-mini")
 IA_MODEL_PRO = os.getenv("IA_MODEL_PRO", "gpt-4.1")
 IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-5.5")
+IA_MODEL_PREMIUM_FALLBACK = os.getenv("IA_MODEL_PREMIUM_FALLBACK", IA_MODEL_PRO)
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
@@ -689,37 +690,70 @@ def registrar_credito_ia(email: str, plan_usuario: dict):
         return False
 
 
+def modelos_intento_por_plan(plan_actual: str, es_admin: bool = False) -> list[str]:
+    modelo_principal = modelo_ia_por_plan(plan_actual, es_admin)
+
+    if not modelo_principal:
+        return []
+
+    modelos = [modelo_principal]
+    plan = (plan_actual or "gratis").lower().strip()
+
+    # Premium/admin intenta primero el modelo más potente. Si la cuenta todavía
+    # no tiene acceso o el modelo falla temporalmente, baja automáticamente al
+    # modelo Pro para que el usuario no vea la app caída.
+    if (plan == "premium" or es_admin) and IA_MODEL_PREMIUM_FALLBACK:
+        if IA_MODEL_PREMIUM_FALLBACK not in modelos:
+            modelos.append(IA_MODEL_PREMIUM_FALLBACK)
+
+    return modelos
+
+
 def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False) -> str:
     if not openai_client:
         return "La IA avanzada no está disponible por el momento. Intenta nuevamente en unos minutos."
 
-    modelo = modelo_ia_por_plan(plan_actual, es_admin)
+    modelos = modelos_intento_por_plan(plan_actual, es_admin)
 
-    if not modelo:
+    if not modelos:
         return ""
 
-    try:
-        respuesta = openai_client.chat.completions.create(
-            model=modelo,
-            messages=[
-                {
-                    "role": "system",
-                    "content": PROMPT_CENTENO_AI
-                },
-                {
-                    "role": "user",
-                    "content": mensaje
-                }
-            ],
-            temperature=0.7,
-            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
+    ultimo_error = ""
+
+    for modelo in modelos:
+        try:
+            respuesta = openai_client.chat.completions.create(
+                model=modelo,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": PROMPT_CENTENO_AI
+                    },
+                    {
+                        "role": "user",
+                        "content": mensaje
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=max_tokens_por_plan(plan_actual, es_admin)
+            )
+
+            texto = respuesta.choices[0].message.content.strip()
+            return limpiar_respuesta_marca(texto)
+
+        except Exception as error:
+            ultimo_error = str(error)[:500]
+            continue
+
+    if es_admin:
+        return limpiar_respuesta_marca(
+            "La IA avanzada no respondió en este momento. "
+            f"Modelo principal: {modelos[0]}. "
+            f"Respaldo: {modelos[-1] if len(modelos) > 1 else 'no configurado'}. "
+            f"Detalle admin: {ultimo_error}"
         )
 
-        texto = respuesta.choices[0].message.content.strip()
-        return limpiar_respuesta_marca(texto)
-
-    except Exception:
-        return "La IA avanzada está ocupada por el momento. Intenta nuevamente en unos minutos."
+    return "La IA avanzada está ocupada por el momento. Intenta nuevamente en unos minutos."
 
 
 def plan_permite_imagen_avanzada(plan_actual: str, es_admin: bool = False) -> bool:
