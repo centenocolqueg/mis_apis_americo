@@ -60,6 +60,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 IA_MODEL_BASICO = os.getenv("IA_MODEL_BASICO", "gpt-4.1-mini")
 IA_MODEL_PRO = os.getenv("IA_MODEL_PRO", "gpt-4.1")
 IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
+IA_VISION_MODEL = os.getenv("IA_VISION_MODEL", "gpt-4.1-mini")
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
@@ -798,6 +799,62 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
     }
 
 
+def normalizar_imagen_para_vision(image_url: str) -> str:
+    """
+    Acepta URL pública o data:image base64.
+    Si recibe URL pública, intenta convertirla a data:image/base64 para evitar bloqueos de descarga externa.
+    Si no puede convertir, devuelve la URL original.
+    """
+    image_url = (image_url or "").strip()
+
+    if image_url.startswith("data:image/"):
+        return image_url
+
+    if image_url.startswith("http://") or image_url.startswith("https://"):
+        try:
+            response = requests.get(
+                image_url,
+                timeout=30,
+                headers={
+                    "User-Agent": f"{APP_NAME}/1.0"
+                }
+            )
+
+            if response.status_code == 200 and response.content:
+                content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+
+                if not content_type.startswith("image/"):
+                    content_type = "image/jpeg"
+
+                imagen_b64 = base64.b64encode(response.content).decode("utf-8")
+                return f"data:{content_type};base64,{imagen_b64}"
+        except Exception:
+            pass
+
+    return image_url
+
+
+def extraer_texto_responses_api(respuesta) -> str:
+    """Extrae texto de Responses API de forma segura."""
+    try:
+        texto = getattr(respuesta, "output_text", None)
+        if texto:
+            return str(texto).strip()
+    except Exception:
+        pass
+
+    try:
+        partes = []
+        for item in getattr(respuesta, "output", []) or []:
+            for contenido in getattr(item, "content", []) or []:
+                texto = getattr(contenido, "text", None)
+                if texto:
+                    partes.append(str(texto))
+        return "\n".join(partes).strip()
+    except Exception:
+        return ""
+
+
 def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
     email = limpiar_email(email)
     plan_usuario = obtener_plan_app_seguro(email)
@@ -830,37 +887,82 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "codigo": "ia_no_configurada"
         }
 
-    modelo = IA_MODEL_PREMIUM if plan_actual == "premium" or es_admin else IA_MODEL_PRO
+    pregunta_final = pregunta or "Analiza esta imagen de forma clara y profesional."
+    imagen_final = normalizar_imagen_para_vision(image_url)
+    modelo_vision = IA_VISION_MODEL or modelo_ia_por_plan(plan_actual, es_admin) or IA_MODEL_PREMIUM
 
     try:
-        respuesta = openai_client.chat.completions.create(
-            model=modelo,
-            messages=[
-                {
-                    "role": "system",
-                    "content": PROMPT_CENTENO_AI
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": pregunta or "Analiza esta imagen de forma clara y profesional."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image_url
+        # Método principal: Responses API con entrada visual moderna.
+        if hasattr(openai_client, "responses"):
+            respuesta = openai_client.responses.create(
+                model=modelo_vision,
+                input=[
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": PROMPT_CENTENO_AI
                             }
-                        }
-                    ]
-                }
-            ],
-            temperature=0.5,
-            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
-        )
+                        ]
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": pregunta_final
+                            },
+                            {
+                                "type": "input_image",
+                                "image_url": imagen_final
+                            }
+                        ]
+                    }
+                ],
+                temperature=0.4,
+                max_output_tokens=max_tokens_por_plan(plan_actual, es_admin)
+            )
 
-        texto = limpiar_respuesta_marca(respuesta.choices[0].message.content.strip())
+            texto = extraer_texto_responses_api(respuesta)
+        else:
+            texto = ""
+
+        # Respaldo: Chat Completions multimodal, por si la librería instalada no usa Responses API.
+        if not texto:
+            respuesta = openai_client.chat.completions.create(
+                model=modelo_vision,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": PROMPT_CENTENO_AI
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": pregunta_final
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": imagen_final
+                                }
+                            }
+                        ]
+                    }
+                ],
+                temperature=0.4,
+                max_tokens=max_tokens_por_plan(plan_actual, es_admin)
+            )
+
+            texto = respuesta.choices[0].message.content.strip()
+
+        texto = limpiar_respuesta_marca(texto)
+
+        if not texto:
+            texto = "Pude revisar la imagen, pero no se generó una respuesta clara. Intenta con otra imagen más nítida."
 
         if not es_admin:
             registrar_credito_ia(email, plan_usuario)
@@ -868,7 +970,7 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
         guardar_historial_supabase(
             email=email,
             tipo="texto",
-            entrada=f"Análisis de imagen: {pregunta}",
+            entrada=f"Análisis de imagen: {pregunta_final}",
             respuesta=texto,
             imagen_url=image_url,
             plan=plan_actual
@@ -883,12 +985,20 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "respuesta": texto
         }
 
-    except Exception:
-        return {
+    except Exception as error:
+        respuesta_error = {
             "ok": False,
             "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente.",
             "codigo": "analisis_error"
         }
+
+        # Solo el dueño ve el detalle técnico para poder corregir Render/GitHub rápido.
+        if es_admin:
+            respuesta_error["debug_admin"] = str(error)[:1000]
+            respuesta_error["modelo_vision"] = modelo_vision
+            respuesta_error["imagen_formato"] = "base64" if imagen_final.startswith("data:image/") else "url"
+
+        return respuesta_error
 
 
 def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: int = 768):
