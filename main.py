@@ -1,6 +1,8 @@
 import os
 import json
 import base64
+import tempfile
+import textwrap
 import requests
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -27,7 +29,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
         f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.7.0",
+    version="4.8.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -63,6 +65,7 @@ IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
+IA_EDIT_IMAGE_MODEL = os.getenv("IA_EDIT_IMAGE_MODEL", "gpt-image-1")
 
 IA_TTS_MODEL = os.getenv("IA_TTS_MODEL", "gpt-4o-mini-tts")
 IA_TTS_VOICE = os.getenv("IA_TTS_VOICE", "onyx")
@@ -250,6 +253,22 @@ class AnalizarImagenRequest(BaseModel):
 class VozPremiumRequest(BaseModel):
     email: str = "usuario@app.com"
     texto: str = Field(..., min_length=1, max_length=4096)
+
+
+class EditarImagenRequest(BaseModel):
+    email: str = "usuario@app.com"
+    mensaje: str = Field(..., min_length=1, max_length=2000)
+    image_url: str | None = Field(default=None, max_length=8000000)
+    imagen_base64: str | None = Field(default=None, max_length=8000000)
+    ancho: int = Field(default=768, ge=256, le=1024)
+    alto: int = Field(default=768, ge=256, le=1024)
+
+
+class CrearPdfRequest(BaseModel):
+    email: str = "usuario@app.com"
+    titulo: str = Field(default="Documento CENTENO AI", max_length=200)
+    contenido: str = Field(..., min_length=1, max_length=25000)
+    nombre_archivo: str = Field(default="centeno-ai-documento.pdf", max_length=120)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -1129,6 +1148,420 @@ def generar_voz_premium(email: str, texto: str):
         return respuesta_error
 
 
+
+def extension_por_tipo_imagen(content_type: str) -> str:
+    content_type = (content_type or "").lower().strip()
+
+    if "png" in content_type:
+        return ".png"
+    if "webp" in content_type:
+        return ".webp"
+    if "jpeg" in content_type or "jpg" in content_type:
+        return ".jpg"
+
+    return ".png"
+
+
+def preparar_imagen_temporal_para_edicion(image_url: str | None = None, imagen_base64: str | None = None):
+    entrada = (imagen_base64 or image_url or "").strip()
+
+    if not entrada:
+        return None, "imagen_vacia"
+
+    contenido = b""
+    content_type = "image/png"
+
+    try:
+        if entrada.startswith("data:image/"):
+            cabecera, b64_data = entrada.split(",", 1)
+            content_type = cabecera.replace("data:", "").split(";")[0].strip() or "image/png"
+            contenido = base64.b64decode(b64_data)
+
+        elif entrada.startswith(("http://", "https://")):
+            response = requests.get(
+                entrada,
+                timeout=60,
+                headers={
+                    "User-Agent": "CENTENO-AI/1.0",
+                    "Accept": "image/png,image/jpeg,image/webp,image/*,*/*"
+                },
+                allow_redirects=True
+            )
+
+            if response.status_code != 200:
+                return None, "imagen_no_descargada"
+
+            content_type = response.headers.get("content-type", "image/png").split(";")[0].strip().lower()
+            contenido = response.content or b""
+
+        else:
+            # Respaldo para base64 puro sin cabecera data:image.
+            contenido = base64.b64decode(entrada)
+            content_type = "image/png"
+
+        if not contenido or len(contenido) < 20:
+            return None, "imagen_vacia"
+
+        if len(contenido) > 20 * 1024 * 1024:
+            return None, "imagen_muy_grande"
+
+        if not content_type.startswith("image/"):
+            if contenido[:3] == b"\xff\xd8\xff":
+                content_type = "image/jpeg"
+            elif contenido[:8] == b"\x89PNG\r\n\x1a\n":
+                content_type = "image/png"
+            elif contenido[:4] == b"RIFF":
+                content_type = "image/webp"
+            else:
+                return None, "archivo_no_es_imagen"
+
+        suffix = extension_por_tipo_imagen(content_type)
+
+        archivo = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        archivo.write(contenido)
+        archivo.flush()
+        archivo.close()
+
+        return archivo.name, None
+
+    except Exception as error:
+        return None, str(error)[:300]
+
+
+def mejorar_prompt_edicion_imagen(mensaje: str) -> str:
+    mensaje = (mensaje or "").strip()
+
+    if not mensaje:
+        mensaje = "Mejora esta imagen de forma profesional."
+
+    return (
+        f"Edita la imagen siguiendo esta instrucción: {mensaje}. "
+        "Mantén una apariencia profesional, natural y de alta calidad. "
+        "Conserva los elementos importantes de la imagen original cuando corresponda. "
+        "No agregues texto mal escrito ni marcas externas. "
+        "El resultado debe verse limpio, elegante y listo para uso comercial o redes sociales."
+    )
+
+
+def editar_imagen_con_ia(
+    email: str,
+    mensaje: str,
+    image_url: str | None = None,
+    imagen_base64: str | None = None,
+    ancho: int = 768,
+    alto: int = 768
+):
+    email = limpiar_email(email)
+    mensaje = (mensaje or "").strip()
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    if not plan_permite_imagen_avanzada(plan_actual, es_admin):
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "La edición de imágenes está disponible en los planes Pro y Premium.",
+            "codigo": "plan_no_permite_edicion"
+        }
+
+    permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+    if not permitido and not es_admin:
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": mensaje_creditos,
+            "codigo": "limite_creditos"
+        }
+
+    if not openai_client:
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "La edición de imágenes no está disponible por el momento.",
+            "codigo": "ia_no_configurada"
+        }
+
+    ruta_temporal, error_imagen = preparar_imagen_temporal_para_edicion(
+        image_url=image_url,
+        imagen_base64=imagen_base64
+    )
+
+    if not ruta_temporal:
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "Primero adjunta una imagen válida para poder editarla.",
+            "codigo": "imagen_no_preparada",
+            "detalle_admin": error_imagen if es_admin else None
+        }
+
+    try:
+        prompt_final = mejorar_prompt_edicion_imagen(mensaje)
+
+        try:
+            with open(ruta_temporal, "rb") as imagen_archivo:
+                respuesta = openai_client.images.edit(
+                    model=IA_EDIT_IMAGE_MODEL,
+                    image=imagen_archivo,
+                    prompt=prompt_final,
+                    size="1024x1024"
+                )
+        except TypeError:
+            # Respaldo para versiones de librería que esperan una lista de imágenes.
+            with open(ruta_temporal, "rb") as imagen_archivo:
+                respuesta = openai_client.images.edit(
+                    model=IA_EDIT_IMAGE_MODEL,
+                    image=[imagen_archivo],
+                    prompt=prompt_final,
+                    size="1024x1024"
+                )
+
+        item = respuesta.data[0]
+
+        if getattr(item, "b64_json", None):
+            imagen_editada_url = f"data:image/png;base64,{item.b64_json}"
+        elif getattr(item, "url", None):
+            imagen_editada_url = item.url
+        else:
+            return {
+                "ok": False,
+                "api": "editar-imagen",
+                "mensaje": "No se pudo cargar la imagen editada. Intenta nuevamente.",
+                "codigo": "imagen_editada_vacia"
+            }
+
+        if not es_admin:
+            registrar_credito_ia(email, plan_usuario)
+
+        guardar_historial_supabase(
+            email=email,
+            tipo="imagen",
+            entrada=f"Edición de imagen: {mensaje}",
+            respuesta=f"Imagen editada por {APP_NAME}",
+            imagen_url=imagen_editada_url,
+            plan=plan_actual
+        )
+
+        return {
+            "ok": True,
+            "api": "editar-imagen",
+            "app": APP_NAME,
+            "empresa": EMPRESA,
+            "ceo": CEO,
+            "tipo": "imagen",
+            "plan": plan_actual,
+            "mensaje": f"Imagen editada por {APP_NAME}.",
+            "respuesta": f"Imagen editada por {APP_NAME}.",
+            "url": imagen_editada_url,
+            "image_url": imagen_editada_url,
+            "imagen_url": imagen_editada_url
+        }
+
+    except Exception as error:
+        respuesta_error = {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "No se pudo editar la imagen en este momento. Intenta nuevamente.",
+            "codigo": "editar_imagen_error"
+        }
+
+        if es_admin:
+            respuesta_error["debug_admin"] = str(error)[:1000]
+            respuesta_error["modelo_imagen"] = IA_EDIT_IMAGE_MODEL
+
+        return respuesta_error
+
+    finally:
+        try:
+            if ruta_temporal and os.path.exists(ruta_temporal):
+                os.remove(ruta_temporal)
+        except Exception:
+            pass
+
+
+def limpiar_nombre_archivo_pdf(nombre: str) -> str:
+    nombre = (nombre or "centeno-ai-documento.pdf").strip()
+
+    for caracter in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+        nombre = nombre.replace(caracter, '-')
+
+    if not nombre.lower().endswith(".pdf"):
+        nombre += ".pdf"
+
+    return nombre[:120] or "centeno-ai-documento.pdf"
+
+
+def limpiar_texto_pdf(texto: str) -> str:
+    texto = limpiar_respuesta_marca(texto or "")
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n")
+    texto = texto.replace("\t", "    ")
+    texto = texto.replace("•", "-")
+    return texto.strip()
+
+
+def pdf_escape(texto: str) -> str:
+    texto = (texto or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return texto
+
+
+def construir_pdf_simple_bytes(titulo: str, contenido: str) -> bytes:
+    titulo = limpiar_texto_pdf(titulo or "Documento CENTENO AI")[:160]
+    contenido = limpiar_texto_pdf(contenido)
+
+    lineas = []
+    lineas.append(titulo)
+    lineas.append("")
+
+    for parrafo in contenido.split("\n"):
+        parrafo = parrafo.strip()
+
+        if not parrafo:
+            lineas.append("")
+            continue
+
+        lineas.extend(textwrap.wrap(parrafo, width=88, break_long_words=False, replace_whitespace=False))
+
+    if not lineas:
+        lineas = [titulo, "", "Documento generado por CENTENO AI."]
+
+    lineas_por_pagina = 48
+    paginas = [lineas[i:i + lineas_por_pagina] for i in range(0, len(lineas), lineas_por_pagina)]
+
+    objetos = []
+
+    def agregar_objeto(contenido_objeto: bytes) -> int:
+        objetos.append(contenido_objeto)
+        return len(objetos)
+
+    catalog_id = agregar_objeto(b"<< /Type /Catalog /Pages 2 0 R >>")
+    pages_id = agregar_objeto(b"")
+    font_id = agregar_objeto(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+
+    page_ids = []
+
+    for pagina in paginas:
+        comandos = ["BT", "/F1 12 Tf", "50 790 Td", "15 TL"]
+
+        primera = True
+        for linea in pagina:
+            linea_segura = pdf_escape(linea)
+            if primera:
+                comandos.append(f"({linea_segura}) Tj")
+                primera = False
+            else:
+                comandos.append(f"T* ({linea_segura}) Tj")
+
+        comandos.append("ET")
+        stream_texto = "\n".join(comandos)
+        stream_bytes = stream_texto.encode("latin-1", errors="replace")
+        contenido_stream = (
+            f"<< /Length {len(stream_bytes)} >>\nstream\n".encode("latin-1") +
+            stream_bytes +
+            b"\nendstream"
+        )
+
+        content_id = agregar_objeto(contenido_stream)
+        page_id = agregar_objeto(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> "
+            f"/Contents {content_id} 0 R >>".encode("latin-1")
+        )
+        page_ids.append(page_id)
+
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objetos[pages_id - 1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>".encode("latin-1")
+
+    salida = bytearray()
+    salida.extend(b"%PDF-1.4\n% CENTENO AI\n")
+
+    offsets = [0]
+
+    for numero, contenido_objeto in enumerate(objetos, start=1):
+        offsets.append(len(salida))
+        salida.extend(f"{numero} 0 obj\n".encode("latin-1"))
+        salida.extend(contenido_objeto)
+        salida.extend(b"\nendobj\n")
+
+    xref_offset = len(salida)
+    salida.extend(f"xref\n0 {len(objetos) + 1}\n".encode("latin-1"))
+    salida.extend(b"0000000000 65535 f \n")
+
+    for offset in offsets[1:]:
+        salida.extend(f"{offset:010d} 00000 n \n".encode("latin-1"))
+
+    salida.extend(
+        f"trailer\n<< /Size {len(objetos) + 1} /Root {catalog_id} 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF".encode("latin-1")
+    )
+
+    return bytes(salida)
+
+
+def crear_pdf_con_ia(email: str, titulo: str, contenido: str, nombre_archivo: str):
+    email = limpiar_email(email)
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    if not es_admin and not plan_app_activo(plan_usuario):
+        return {
+            "ok": False,
+            "api": "crear-pdf",
+            "mensaje": "La creación de PDF está disponible en los planes Básico, Pro y Premium.",
+            "codigo": "plan_no_permite_pdf"
+        }
+
+    try:
+        nombre_final = limpiar_nombre_archivo_pdf(nombre_archivo)
+        pdf_bytes = construir_pdf_simple_bytes(titulo, contenido)
+        pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+        pdf_url = f"data:application/pdf;base64,{pdf_b64}"
+
+        guardar_historial_supabase(
+            email=email,
+            tipo="documento",
+            entrada=titulo,
+            respuesta=f"PDF creado por {APP_NAME}: {nombre_final}",
+            imagen_url=None,
+            plan=plan_actual
+        )
+
+        return {
+            "ok": True,
+            "api": "crear-pdf",
+            "app": APP_NAME,
+            "empresa": EMPRESA,
+            "ceo": CEO,
+            "tipo": "documento",
+            "plan": plan_actual,
+            "nombre_archivo": nombre_final,
+            "pdf_url": pdf_url,
+            "url": pdf_url,
+            "mensaje": "PDF creado por CENTENO AI."
+        }
+
+    except Exception as error:
+        respuesta_error = {
+            "ok": False,
+            "api": "crear-pdf",
+            "mensaje": "No se pudo crear el PDF en este momento. Intenta nuevamente.",
+            "codigo": "crear_pdf_error"
+        }
+
+        if es_admin:
+            respuesta_error["debug_admin"] = str(error)[:1000]
+
+        return respuesta_error
+
 def cargar_usuarios():
     if not os.path.exists(USUARIOS_FILE):
         return {}
@@ -1566,7 +1999,9 @@ def home():
             "/api/imagen",
             "/api/chat-unificado",
             "/api/analizar-imagen",
+            "/api/editar-imagen",
             "/api/voz-premium",
+            "/api/crear-pdf",
             "/api/google-play/activar-plan",
             "/telegram/webhook",
             "/telegram/set-webhook",
@@ -1825,6 +2260,23 @@ def api_analizar_imagen(
     )
 
 
+@app.post("/api/editar-imagen")
+def api_editar_imagen(
+    data: EditarImagenRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return editar_imagen_con_ia(
+        email=data.email,
+        mensaje=data.mensaje,
+        image_url=data.image_url,
+        imagen_base64=data.imagen_base64,
+        ancho=data.ancho,
+        alto=data.alto
+    )
+
+
 @app.post("/api/voz-premium")
 def api_voz_premium(
     data: VozPremiumRequest,
@@ -1835,6 +2287,21 @@ def api_voz_premium(
     return generar_voz_premium(
         email=data.email,
         texto=data.texto
+    )
+
+
+@app.post("/api/crear-pdf")
+def api_crear_pdf(
+    data: CrearPdfRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return crear_pdf_con_ia(
+        email=data.email,
+        titulo=data.titulo,
+        contenido=data.contenido,
+        nombre_archivo=data.nombre_archivo
     )
 
 
