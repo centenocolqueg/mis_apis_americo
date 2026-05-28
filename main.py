@@ -27,7 +27,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
         f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.6.0",
+    version="4.7.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -60,10 +60,18 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 IA_MODEL_BASICO = os.getenv("IA_MODEL_BASICO", "gpt-4.1-mini")
 IA_MODEL_PRO = os.getenv("IA_MODEL_PRO", "gpt-4.1")
 IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
-IA_VISION_MODEL = os.getenv("IA_VISION_MODEL", "gpt-4.1-mini")
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
+
+IA_TTS_MODEL = os.getenv("IA_TTS_MODEL", "gpt-4o-mini-tts")
+IA_TTS_VOICE = os.getenv("IA_TTS_VOICE", "onyx")
+IA_TTS_FORMAT = os.getenv("IA_TTS_FORMAT", "mp3")
+
+try:
+    IA_TTS_SPEED = float(os.getenv("IA_TTS_SPEED", "0.90"))
+except Exception:
+    IA_TTS_SPEED = 0.90
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -237,6 +245,11 @@ class AnalizarImagenRequest(BaseModel):
     email: str = "usuario@app.com"
     image_url: str = Field(..., min_length=5, max_length=8000000)
     pregunta: str = Field(default="Analiza esta imagen de forma clara y profesional.", max_length=1500)
+
+
+class VozPremiumRequest(BaseModel):
+    email: str = "usuario@app.com"
+    texto: str = Field(..., min_length=1, max_length=4096)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -799,159 +812,6 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
     }
 
 
-def convertir_thumb_wikimedia_a_original(url: str) -> str:
-    """
-    Convierte URLs tipo /thumb/ de Wikimedia a la URL original directa.
-    Ejemplo:
-    https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Fronalpstock_big.jpg/800px-Fronalpstock_big.jpg
-    ->
-    https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg
-    """
-    url = (url or "").strip()
-
-    marca = "/wikipedia/commons/thumb/"
-    if "upload.wikimedia.org" not in url or marca not in url:
-        return url
-
-    try:
-        base, resto = url.split(marca, 1)
-        partes = resto.split("/")
-
-        if len(partes) >= 3:
-            ruta_original = "/".join(partes[:3])
-            return f"{base}/wikipedia/commons/{ruta_original}"
-    except Exception:
-        pass
-
-    return url
-
-
-def descargar_imagen_como_data_url(url: str) -> tuple[str | None, str | None]:
-    """
-    Descarga una imagen pública y la convierte a data:image/...;base64.
-    Esto evita que la IA tenga que descargar URLs externas que a veces fallan con 400.
-    """
-    url = (url or "").strip()
-
-    if not url.startswith(("http://", "https://")):
-        return None, "url_invalida"
-
-    candidatos = []
-    url_original_wikimedia = convertir_thumb_wikimedia_a_original(url)
-
-    if url_original_wikimedia and url_original_wikimedia != url:
-        candidatos.append(url_original_wikimedia)
-
-    candidatos.append(url)
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/125.0 Safari/537.36 CENTENO-AI/1.0",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        "Referer": "https://commons.wikimedia.org/"
-    }
-
-    ultimo_error = None
-
-    for candidato in candidatos:
-        try:
-            response = requests.get(
-                candidato,
-                timeout=45,
-                headers=headers,
-                allow_redirects=True
-            )
-
-            if response.status_code != 200:
-                ultimo_error = f"status_{response.status_code}"
-                continue
-
-            contenido = response.content or b""
-
-            if len(contenido) < 20:
-                ultimo_error = "contenido_vacio"
-                continue
-
-            if len(contenido) > 15 * 1024 * 1024:
-                ultimo_error = "imagen_muy_grande"
-                continue
-
-            content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip().lower()
-
-            if not content_type.startswith("image/"):
-                if contenido[:3] == b"\xff\xd8\xff":
-                    content_type = "image/jpeg"
-                elif contenido[:8] == b"\x89PNG\r\n\x1a\n":
-                    content_type = "image/png"
-                elif contenido[:4] == b"RIFF":
-                    content_type = "image/webp"
-                else:
-                    ultimo_error = f"content_type_no_imagen_{content_type}"
-                    continue
-
-            imagen_b64 = base64.b64encode(contenido).decode("utf-8")
-            return f"data:{content_type};base64,{imagen_b64}", None
-
-        except Exception as error:
-            ultimo_error = str(error)[:300]
-            continue
-
-    return None, ultimo_error or "no_se_pudo_descargar"
-
-
-def normalizar_imagen_para_vision(image_url: str) -> tuple[str | None, str, str | None]:
-    """
-    Acepta:
-    - data:image/...;base64,... desde cámara/galería/Base44
-    - URL pública
-
-    Devuelve:
-    - imagen lista para visión
-    - formato usado: base64/url/error
-    - error interno si no se pudo preparar
-    """
-    image_url = (image_url or "").strip()
-
-    if not image_url:
-        return None, "error", "imagen_vacia"
-
-    if image_url.startswith("data:image/"):
-        return image_url, "base64", None
-
-    if image_url.startswith(("http://", "https://")):
-        data_url, error = descargar_imagen_como_data_url(image_url)
-
-        if data_url:
-            return data_url, "base64", None
-
-        # Último respaldo: dejar URL directa, pero marcando que no se pudo convertir.
-        # Si la IA tampoco puede descargarla, debug_admin mostrará el error real.
-        return image_url, "url", error
-
-    return None, "error", "formato_no_soportado"
-
-
-def extraer_texto_responses_api(respuesta) -> str:
-    """Extrae texto de Responses API de forma segura."""
-    try:
-        texto = getattr(respuesta, "output_text", None)
-        if texto:
-            return str(texto).strip()
-    except Exception:
-        pass
-
-    try:
-        partes = []
-        for item in getattr(respuesta, "output", []) or []:
-            for contenido in getattr(item, "content", []) or []:
-                texto = getattr(contenido, "text", None)
-                if texto:
-                    partes.append(str(texto))
-        return "\n".join(partes).strip()
-    except Exception:
-        return ""
-
-
 def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
     email = limpiar_email(email)
     plan_usuario = obtener_plan_app_seguro(email)
@@ -984,95 +844,37 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "codigo": "ia_no_configurada"
         }
 
-    pregunta_final = pregunta or "Analiza esta imagen de forma clara y profesional."
-    imagen_final, imagen_formato, error_preparacion_imagen = normalizar_imagen_para_vision(image_url)
-    modelo_vision = IA_VISION_MODEL or modelo_ia_por_plan(plan_actual, es_admin) or IA_MODEL_PREMIUM
-
-    if not imagen_final:
-        respuesta_error = {
-            "ok": False,
-            "mensaje": "No se pudo preparar la imagen. Intenta con otra imagen o usa una foto desde la galería.",
-            "codigo": "imagen_no_preparada"
-        }
-
-        if es_admin:
-            respuesta_error["debug_admin"] = error_preparacion_imagen
-            respuesta_error["imagen_formato"] = imagen_formato
-
-        return respuesta_error
+    modelo = IA_MODEL_PREMIUM if plan_actual == "premium" or es_admin else IA_MODEL_PRO
 
     try:
-        # Método principal: Responses API con entrada visual moderna.
-        if hasattr(openai_client, "responses"):
-            respuesta = openai_client.responses.create(
-                model=modelo_vision,
-                input=[
-                    {
-                        "role": "system",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": PROMPT_CENTENO_AI
+        respuesta = openai_client.chat.completions.create(
+            model=modelo,
+            messages=[
+                {
+                    "role": "system",
+                    "content": PROMPT_CENTENO_AI
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": pregunta or "Analiza esta imagen de forma clara y profesional."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url
                             }
-                        ]
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": pregunta_final
-                            },
-                            {
-                                "type": "input_image",
-                                "image_url": imagen_final
-                            }
-                        ]
-                    }
-                ],
-                temperature=0.4,
-                max_output_tokens=max_tokens_por_plan(plan_actual, es_admin)
-            )
+                        }
+                    ]
+                }
+            ],
+            temperature=0.5,
+            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
+        )
 
-            texto = extraer_texto_responses_api(respuesta)
-        else:
-            texto = ""
-
-        # Respaldo: Chat Completions multimodal, por si la librería instalada no usa Responses API.
-        if not texto:
-            respuesta = openai_client.chat.completions.create(
-                model=modelo_vision,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": PROMPT_CENTENO_AI
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": pregunta_final
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": imagen_final
-                                }
-                            }
-                        ]
-                    }
-                ],
-                temperature=0.4,
-                max_tokens=max_tokens_por_plan(plan_actual, es_admin)
-            )
-
-            texto = respuesta.choices[0].message.content.strip()
-
-        texto = limpiar_respuesta_marca(texto)
-
-        if not texto:
-            texto = "Pude revisar la imagen, pero no se generó una respuesta clara. Intenta con otra imagen más nítida."
+        texto = limpiar_respuesta_marca(respuesta.choices[0].message.content.strip())
 
         if not es_admin:
             registrar_credito_ia(email, plan_usuario)
@@ -1080,7 +882,7 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
         guardar_historial_supabase(
             email=email,
             tipo="texto",
-            entrada=f"Análisis de imagen: {pregunta_final}",
+            entrada=f"Análisis de imagen: {pregunta}",
             respuesta=texto,
             imagen_url=image_url,
             plan=plan_actual
@@ -1095,21 +897,12 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "respuesta": texto
         }
 
-    except Exception as error:
-        respuesta_error = {
+    except Exception:
+        return {
             "ok": False,
             "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente.",
             "codigo": "analisis_error"
         }
-
-        # Solo el dueño ve el detalle técnico para poder corregir Render/GitHub rápido.
-        if es_admin:
-            respuesta_error["debug_admin"] = str(error)[:1000]
-            respuesta_error["modelo_vision"] = modelo_vision
-            respuesta_error["imagen_formato"] = imagen_formato
-            respuesta_error["error_preparacion_imagen"] = error_preparacion_imagen
-
-        return respuesta_error
 
 
 def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: int = 768):
@@ -1199,6 +992,141 @@ def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: i
         "tipo_ia": "IA avanzada" if fuente == "ia_avanzada" else "IA estándar",
         "respuesta": respuesta
     }
+
+
+def generar_voz_premium(email: str, texto: str):
+    email = limpiar_email(email)
+    texto = texto or ""
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    if not es_admin and not plan_app_activo(plan_usuario):
+        return {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "La voz premium está disponible en los planes Básico, Pro y Premium.",
+            "codigo": "plan_no_permite_voz"
+        }
+
+    if not openai_client:
+        return {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "La voz premium no está disponible por el momento.",
+            "codigo": "voz_no_configurada"
+        }
+
+    texto_limpio = limpiar_respuesta_marca(texto)
+    texto_limpio = " ".join(texto_limpio.split()).strip()
+
+    if not texto_limpio:
+        return {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "No hay texto para convertir en voz.",
+            "codigo": "texto_vacio"
+        }
+
+    if len(texto_limpio) > 4000:
+        texto_limpio = texto_limpio[:4000]
+
+    instrucciones_voz = (
+        "Habla en español latino con voz masculina, grave, elegante, cálida y profesional. "
+        "Debe sonar como un orador seguro, moderno y premium. "
+        "Mantén ritmo natural, buena pronunciación y tono de asistente empresarial."
+    )
+
+    try:
+        parametros = {
+            "model": IA_TTS_MODEL,
+            "voice": IA_TTS_VOICE,
+            "input": texto_limpio,
+            "response_format": IA_TTS_FORMAT,
+            "speed": IA_TTS_SPEED
+        }
+
+        if IA_TTS_MODEL not in ["tts-1", "tts-1-hd"]:
+            parametros["instructions"] = instrucciones_voz
+
+        try:
+            respuesta_audio = openai_client.audio.speech.create(**parametros)
+        except TypeError:
+            parametros.pop("instructions", None)
+            respuesta_audio = openai_client.audio.speech.create(**parametros)
+        except Exception as error_voz:
+            if "instructions" in parametros:
+                parametros.pop("instructions", None)
+                respuesta_audio = openai_client.audio.speech.create(**parametros)
+            else:
+                raise error_voz
+
+        audio_bytes = getattr(respuesta_audio, "content", None)
+
+        if callable(audio_bytes):
+            audio_bytes = audio_bytes()
+
+        if not audio_bytes and hasattr(respuesta_audio, "read"):
+            audio_bytes = respuesta_audio.read()
+
+        if not audio_bytes and isinstance(respuesta_audio, bytes):
+            audio_bytes = respuesta_audio
+
+        if not audio_bytes:
+            return {
+                "ok": False,
+                "api": "voz-premium",
+                "mensaje": "No se pudo generar la voz premium en este momento.",
+                "codigo": "audio_vacio"
+            }
+
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+        mime = "audio/mp3"
+        if IA_TTS_FORMAT == "wav":
+            mime = "audio/wav"
+        elif IA_TTS_FORMAT == "aac":
+            mime = "audio/aac"
+        elif IA_TTS_FORMAT == "opus":
+            mime = "audio/opus"
+        elif IA_TTS_FORMAT == "flac":
+            mime = "audio/flac"
+
+        audio_url = f"data:{mime};base64,{audio_b64}"
+
+        return {
+            "ok": True,
+            "api": "voz-premium",
+            "app": APP_NAME,
+            "empresa": EMPRESA,
+            "ceo": CEO,
+            "plan": plan_actual,
+            "tipo_voz": "voz_premium",
+            "voice": IA_TTS_VOICE,
+            "format": IA_TTS_FORMAT,
+            "audio_url": audio_url,
+            "url": audio_url,
+            "mensaje": "Voz premium generada por CENTENO AI."
+        }
+
+    except Exception as error:
+        respuesta_error = {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "La voz premium no está disponible en este momento. Intenta nuevamente.",
+            "codigo": "voz_premium_error"
+        }
+
+        if es_admin:
+            respuesta_error["debug_admin"] = str(error)[:1000]
+            respuesta_error["modelo_voz"] = IA_TTS_MODEL
+            respuesta_error["voz"] = IA_TTS_VOICE
+
+        return respuesta_error
 
 
 def cargar_usuarios():
@@ -1638,6 +1566,7 @@ def home():
             "/api/imagen",
             "/api/chat-unificado",
             "/api/analizar-imagen",
+            "/api/voz-premium",
             "/api/google-play/activar-plan",
             "/telegram/webhook",
             "/telegram/set-webhook",
@@ -1893,6 +1822,19 @@ def api_analizar_imagen(
         email=data.email,
         image_url=data.image_url,
         pregunta=data.pregunta
+    )
+
+
+@app.post("/api/voz-premium")
+def api_voz_premium(
+    data: VozPremiumRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return generar_voz_premium(
+        email=data.email,
+        texto=data.texto
     )
 
 
