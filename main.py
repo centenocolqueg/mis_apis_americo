@@ -30,7 +30,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
         f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.8.1",
+    version="4.9.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -62,7 +62,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 IA_MODEL_BASICO = os.getenv("IA_MODEL_BASICO", "gpt-4.1-mini")
 IA_MODEL_PRO = os.getenv("IA_MODEL_PRO", "gpt-4.1")
-IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
+IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-5.5")
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
@@ -451,6 +451,88 @@ def plan_app_activo(plan_usuario: dict) -> bool:
     if plan_usuario.get("es_admin"):
         return True
 
+
+def obtener_capacidades_plan(email: str) -> dict:
+    """
+    Regla central de planes para CENTENO AI.
+    Base44 no decide motores ni modelos. Render decide todo por email y plan.
+    """
+    email = limpiar_email(email)
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    capacidades = {
+        "email": email,
+        "plan": plan_actual,
+        "es_admin": es_admin,
+        "chat_gratis_ilimitado": False,
+        "texto_gratis": False,
+        "imagen_pollinations": True,
+        "imagen_gratis_limite": False,
+        "ia_avanzada": False,
+        "modelo_texto": None,
+        "imagen_avanzada_chat": False,
+        "analizar_imagen": False,
+        "editar_imagen": False,
+        "crear_pdf": False,
+        "voz_premium": False,
+        "herramientas": []
+    }
+
+    if plan_actual == "gratis" and not es_admin:
+        capacidades.update({
+            "chat_gratis_ilimitado": True,
+            "texto_gratis": True,
+            "imagen_gratis_limite": True,
+            "herramientas": ["chat_gratis", "imagen_pollinations_10"]
+        })
+        return capacidades
+
+    if plan_actual == "basico":
+        capacidades.update({
+            "ia_avanzada": True,
+            "modelo_texto": IA_MODEL_BASICO,
+            "herramientas": ["chat_avanzado_basico", "redactor", "traductor", "resumen", "corrector"]
+        })
+        return capacidades
+
+    if plan_actual == "pro":
+        capacidades.update({
+            "ia_avanzada": True,
+            "modelo_texto": IA_MODEL_PRO,
+            "imagen_avanzada_chat": True,
+            "analizar_imagen": True,
+            "herramientas": ["todo_basico", "programacion", "analisis_imagen", "camara_fotos", "imagen_avanzada_chat"]
+        })
+        return capacidades
+
+    if plan_actual == "premium" or es_admin:
+        capacidades.update({
+            "ia_avanzada": True,
+            "modelo_texto": IA_MODEL_PREMIUM,
+            "imagen_avanzada_chat": True,
+            "analizar_imagen": True,
+            "editar_imagen": True,
+            "crear_pdf": True,
+            "voz_premium": True,
+            "herramientas": ["todo_basico", "todo_pro", "pdf", "word", "voz_premium", "editar_imagen", "herramientas_completas"]
+        })
+        return capacidades
+
+    # Si el plan no está reconocido o está vencido, cae seguro a gratis.
+    capacidades.update({
+        "plan": "gratis",
+        "chat_gratis_ilimitado": True,
+        "texto_gratis": True,
+        "imagen_gratis_limite": True,
+        "herramientas": ["chat_gratis", "imagen_pollinations_10"]
+    })
+    return capacidades
+
     estado = (plan_usuario.get("estado_plan") or "").lower().strip()
     plan = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
 
@@ -496,9 +578,37 @@ def modelo_ia_por_plan(plan_actual: str, es_admin: bool = False) -> str | None:
     return None
 
 
+    plan = (plan_actual or "gratis").lower().strip()
+
+    if plan == "basico":
+        return IA_MODEL_BASICO
+
+    if plan == "pro":
+        return IA_MODEL_PRO
+
+    if plan == "premium":
+        return IA_MODEL_PREMIUM
+
+    return None
+
+
 def max_tokens_por_plan(plan_actual: str, es_admin: bool = False) -> int:
     if es_admin:
-        return 1800
+        return 2500
+
+    plan = (plan_actual or "gratis").lower().strip()
+
+    if plan == "basico":
+        return 700
+
+    if plan == "pro":
+        return 1300
+
+    if plan == "premium":
+        return 2500
+
+    return 700
+
 
     plan = (plan_actual or "gratis").lower().strip()
 
@@ -620,9 +730,41 @@ def plan_permite_imagen_avanzada(plan_actual: str, es_admin: bool = False) -> bo
     return plan in ["pro", "premium"]
 
 
+    plan = (plan_actual or "gratis").lower().strip()
+    return plan in ["pro", "premium"]
+
+
 def plan_permite_analizar_imagen(plan_actual: str, es_admin: bool = False) -> bool:
     if es_admin:
         return True
+
+    plan = (plan_actual or "gratis").lower().strip()
+    return plan in ["pro", "premium"]
+
+
+def plan_permite_editar_imagen(plan_actual: str, es_admin: bool = False) -> bool:
+    if es_admin:
+        return True
+
+    plan = (plan_actual or "gratis").lower().strip()
+    return plan == "premium"
+
+
+def plan_permite_pdf(plan_actual: str, es_admin: bool = False) -> bool:
+    if es_admin:
+        return True
+
+    plan = (plan_actual or "gratis").lower().strip()
+    return plan == "premium"
+
+
+def plan_permite_voz_premium(plan_actual: str, es_admin: bool = False) -> bool:
+    if es_admin:
+        return True
+
+    plan = (plan_actual or "gratis").lower().strip()
+    return plan == "premium"
+
 
     plan = (plan_actual or "gratis").lower().strip()
     return plan in ["pro", "premium"]
@@ -874,9 +1016,168 @@ def generar_imagen_openai(prompt: str, ancho: int = 1024, alto: int = 1024, mode
         return None, "La generación de imágenes está ocupada por el momento. Intenta nuevamente en unos minutos."
 
 
-def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int = 768):
+def generar_imagen_pollinations_solo(email: str, prompt: str, ancho: int = 768, alto: int = 768):
+    """
+    Endpoint /api/imagen: SOLO Pollinations.
+    Esta pantalla NO usa IA avanzada aunque el usuario sea Pro/Premium.
+    """
     email = limpiar_email(email)
     prompt = (prompt or "").strip()
+
+    if not prompt:
+        return {
+            "ok": False,
+            "api": "imagen",
+            "mensaje": "Describe qué imagen quieres crear y CENTENO AI la generará por ti.",
+            "codigo": "prompt_vacio"
+        }
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    # Solo el usuario gratis consume el límite de 10 imágenes gratis.
+    # Los planes pagados no usan IA avanzada en esta pantalla, pero tampoco se bloquean por contador gratis.
+    if plan_actual == "gratis" and not es_admin:
+        permiso_imagen = controlar_imagen_gratis(email)
+
+        if not permiso_imagen.get("ok"):
+            return {
+                "ok": False,
+                "api": "imagen",
+                "app": APP_NAME,
+                "mensaje": permiso_imagen.get("mensaje"),
+                "codigo": permiso_imagen.get("codigo", "limite")
+            }
+
+    url_imagen = crear_url_pollinations(prompt, ancho, alto)
+
+    guardar_historial_supabase(
+        email=email,
+        tipo="imagen",
+        entrada=prompt,
+        respuesta=f"Imagen generada por {APP_NAME}",
+        imagen_url=url_imagen,
+        plan=plan_actual
+    )
+
+    return {
+        "ok": True,
+        "api": "imagen",
+        "app": APP_NAME,
+        "empresa": EMPRESA,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
+        "tipo": "imagen",
+        "plan": plan_actual,
+        "tipo_imagen": "pollinations",
+        "motor": "imagen_gratis",
+        "prompt": prompt,
+        "url": url_imagen,
+        "image_url": url_imagen,
+        "imagen_url": url_imagen,
+        "mensaje": f"Imagen generada por {APP_NAME}",
+        "respuesta": f"Imagen generada por {APP_NAME}"
+    }
+
+
+def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int = 768):
+    """
+    Imagen dentro del Chat IA unificado.
+    Gratis y Básico usan Pollinations.
+    Pro/Premium/Admin usan imagen avanzada dentro del Chat IA.
+    """
+    email = limpiar_email(email)
+    prompt = (prompt or "").strip()
+
+    if not prompt:
+        return {
+            "ok": False,
+            "api": "imagen",
+            "mensaje": "Describe qué imagen quieres crear y CENTENO AI la generará por ti.",
+            "codigo": "prompt_vacio"
+        }
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    usar_imagen_avanzada = plan_permite_imagen_avanzada(plan_actual, es_admin)
+
+    if usar_imagen_avanzada:
+        permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+        if not permitido and not es_admin:
+            return {
+                "ok": False,
+                "api": "imagen",
+                "app": APP_NAME,
+                "mensaje": mensaje_creditos,
+                "codigo": "limite_creditos"
+            }
+
+        modelo_img = IA_IMAGE_MODEL_PREMIUM if plan_actual == "premium" or es_admin else IA_IMAGE_MODEL_PRO
+        url_imagen, error = generar_imagen_openai(prompt, ancho=ancho, alto=alto, modelo=modelo_img)
+
+        if error:
+            # Respaldo limpio: si la imagen avanzada está ocupada, el Chat IA igual devuelve una imagen.
+            url_imagen = crear_url_pollinations(prompt, ancho, alto)
+            tipo_imagen = "imagen_respaldo"
+        else:
+            tipo_imagen = "imagen_avanzada"
+            if not es_admin:
+                registrar_credito_ia(email, plan_usuario)
+    else:
+        # Gratis: Pollinations con límite de 10 imágenes.
+        # Básico: Pollinations sin activar imagen avanzada.
+        if plan_actual == "gratis" and not es_admin:
+            permiso_imagen = controlar_imagen_gratis(email)
+
+            if not permiso_imagen.get("ok"):
+                return {
+                    "ok": False,
+                    "api": "imagen",
+                    "app": APP_NAME,
+                    "mensaje": permiso_imagen.get("mensaje"),
+                    "codigo": permiso_imagen.get("codigo", "limite")
+                }
+
+        url_imagen = crear_url_pollinations(prompt, ancho, alto)
+        tipo_imagen = "imagen_basica"
+
+    guardar_historial_supabase(
+        email=email,
+        tipo="imagen",
+        entrada=prompt,
+        respuesta=f"Imagen generada por {APP_NAME}",
+        imagen_url=url_imagen,
+        plan=plan_actual
+    )
+
+    return {
+        "ok": True,
+        "api": "imagen",
+        "app": APP_NAME,
+        "empresa": EMPRESA,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
+        "tipo": "imagen",
+        "plan": plan_actual,
+        "tipo_imagen": tipo_imagen,
+        "prompt": prompt,
+        "url": url_imagen,
+        "image_url": url_imagen,
+        "imagen_url": url_imagen,
+        "mensaje": f"Imagen generada por {APP_NAME}",
+        "respuesta": f"Imagen generada por {APP_NAME}"
+    }
+
 
     if not prompt:
         return {
@@ -1057,8 +1358,103 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
 
 
 def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: int = 768, forzar_imagen: bool = False):
+    """
+    Puerta única del Chat IA verde.
+    Base44 solo llama aquí. Render decide motor por plan.
+    """
     email = limpiar_email(email)
     mensaje = (mensaje or "").strip()
+
+    if not mensaje:
+        return {
+            "ok": False,
+            "api": "chat-unificado",
+            "mensaje": "Escribe un mensaje para CENTENO AI.",
+            "codigo": "mensaje_vacio"
+        }
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    # Imagen dentro del Chat IA.
+    if forzar_imagen or es_solicitud_imagen(mensaje):
+        prompt_visual = limpiar_prompt_visual(mensaje)
+
+        if not prompt_visual:
+            return {
+                "ok": False,
+                "api": "imagen",
+                "tipo": "imagen",
+                "mensaje": "Claro. Describe qué imagen quieres crear y CENTENO AI la generará por ti.",
+                "codigo": "prompt_imagen_vacio"
+            }
+
+        resultado_imagen = generar_imagen_por_plan(
+            email=email,
+            prompt=prompt_visual,
+            ancho=ancho,
+            alto=alto
+        )
+
+        resultado_imagen["tipo"] = "imagen"
+        resultado_imagen["respuesta"] = resultado_imagen.get("mensaje", f"Imagen generada por {APP_NAME}")
+        return resultado_imagen
+
+    # Texto dentro del Chat IA.
+    if es_pregunta_identidad(mensaje):
+        respuesta = respuesta_identidad_oficial()
+        fuente = "identidad"
+    elif plan_app_activo(plan_usuario):
+        # Básico, Pro y Premium usan IA avanzada según su modelo.
+        permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+        if not permitido and not es_admin:
+            respuesta = mensaje_creditos
+            fuente = "limite"
+        else:
+            respuesta = responder_ia_avanzada(
+                mensaje=mensaje,
+                plan_actual=plan_actual,
+                es_admin=es_admin
+            )
+            fuente = "ia_avanzada"
+
+            if respuesta and not es_admin:
+                registrar_credito_ia(email, plan_usuario)
+    else:
+        # Gratis: chat ilimitado con tus APIs gratis.
+        resultado = responder_mensaje(mensaje)
+        respuesta = limpiar_respuesta_marca(resultado["respuesta"])
+        fuente = "api_gratis"
+        plan_actual = "gratis"
+
+    guardar_historial_supabase(
+        email=email,
+        tipo="texto",
+        entrada=mensaje,
+        respuesta=respuesta,
+        plan=plan_actual
+    )
+
+    return {
+        "ok": True,
+        "api": "chat-unificado",
+        "app": APP_NAME,
+        "empresa": EMPRESA,
+        "ceo": CEO,
+        "fecha_lanzamiento": FECHA_CREACION,
+        "tipo": "texto",
+        "entrada": mensaje,
+        "plan": plan_actual,
+        "modelo_plan": modelo_ia_por_plan(plan_actual, es_admin) if fuente == "ia_avanzada" else "api_gratis",
+        "tipo_ia": "IA avanzada" if fuente == "ia_avanzada" else "IA estándar",
+        "respuesta": respuesta
+    }
+
 
     if not mensaje:
         return {
@@ -1156,11 +1552,11 @@ def generar_voz_premium(email: str, texto: str):
     if es_admin:
         plan_actual = "premium"
 
-    if not es_admin and not plan_app_activo(plan_usuario):
+    if not plan_permite_voz_premium(plan_actual, es_admin):
         return {
             "ok": False,
             "api": "voz-premium",
-            "mensaje": "La voz premium está disponible en los planes Básico, Pro y Premium.",
+            "mensaje": "La voz premium está disponible en el plan Premium.",
             "codigo": "plan_no_permite_voz"
         }
 
@@ -1393,11 +1789,11 @@ def editar_imagen_con_ia(
     if es_admin:
         plan_actual = "premium"
 
-    if not plan_permite_imagen_avanzada(plan_actual, es_admin):
+    if not plan_permite_editar_imagen(plan_actual, es_admin):
         return {
             "ok": False,
             "api": "editar-imagen",
-            "mensaje": "La edición de imágenes está disponible en los planes Pro y Premium.",
+            "mensaje": "La edición de imágenes está disponible en el plan Premium.",
             "codigo": "plan_no_permite_edicion"
         }
 
@@ -1644,11 +2040,11 @@ def crear_pdf_con_ia(email: str, titulo: str, contenido: str, nombre_archivo: st
     if es_admin:
         plan_actual = "premium"
 
-    if not es_admin and not plan_app_activo(plan_usuario):
+    if not plan_permite_pdf(plan_actual, es_admin):
         return {
             "ok": False,
             "api": "crear-pdf",
-            "mensaje": "La creación de PDF está disponible en los planes Básico, Pro y Premium.",
+            "mensaje": "La creación de PDF está disponible en el plan Premium.",
             "codigo": "plan_no_permite_pdf"
         }
 
@@ -2116,7 +2512,7 @@ def home():
             "gratis": "APIs actuales",
             "basico": "IA avanzada básica",
             "pro": "IA avanzada intermedia + análisis de imagen",
-            "premium": "IA avanzada premium + imagen avanzada"
+            "premium": "IA avanzada premium + herramientas completas"
         },
         "endpoints": [
             "/",
@@ -2355,6 +2751,15 @@ def api_imagen(
     x_api_key: str | None = Header(default=None)
 ):
     verificar_api_key(x_api_key)
+
+    # Pantalla Imagen: SOLO Pollinations. No usa IA avanzada aquí.
+    return generar_imagen_pollinations_solo(
+        email=email,
+        prompt=data.prompt,
+        ancho=data.ancho,
+        alto=data.alto
+    )
+
 
     resultado = generar_imagen_por_plan(
         email=email,
