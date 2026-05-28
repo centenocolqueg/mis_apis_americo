@@ -1,6 +1,9 @@
 import os
 import json
 import base64
+import re
+import tempfile
+import textwrap
 import requests
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -27,7 +30,7 @@ app = FastAPI(
         f"{APP_NAME}, inteligencia artificial empresarial creada por {EMPRESA}. "
         f"CEO: {CEO}. Lanzamiento oficial: {FECHA_CREACION}."
     ),
-    version="4.9.0",
+    version="4.8.1",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -63,6 +66,7 @@ IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
+IA_EDIT_IMAGE_MODEL = os.getenv("IA_EDIT_IMAGE_MODEL", "gpt-image-1")
 
 IA_TTS_MODEL = os.getenv("IA_TTS_MODEL", "gpt-4o-mini-tts")
 IA_TTS_VOICE = os.getenv("IA_TTS_VOICE", "onyx")
@@ -239,10 +243,7 @@ class ChatUnificadoRequest(BaseModel):
     email: str = "usuario@app.com"
     ancho: int = Field(default=768, ge=256, le=1024)
     alto: int = Field(default=768, ge=256, le=1024)
-    # Si Base44 abre el modo "Crear imagen", puede mandar forzar_imagen=true.
-    # Así el backend genera imagen aunque el texto diga solo: "un gato con lentes".
     forzar_imagen: bool = False
-    tipo: str | None = None
     modo: str | None = None
 
 
@@ -255,6 +256,22 @@ class AnalizarImagenRequest(BaseModel):
 class VozPremiumRequest(BaseModel):
     email: str = "usuario@app.com"
     texto: str = Field(..., min_length=1, max_length=4096)
+
+
+class EditarImagenRequest(BaseModel):
+    email: str = "usuario@app.com"
+    mensaje: str = Field(..., min_length=1, max_length=2000)
+    image_url: str | None = Field(default=None, max_length=8000000)
+    imagen_base64: str | None = Field(default=None, max_length=8000000)
+    ancho: int = Field(default=768, ge=256, le=1024)
+    alto: int = Field(default=768, ge=256, le=1024)
+
+
+class CrearPdfRequest(BaseModel):
+    email: str = "usuario@app.com"
+    titulo: str = Field(default="Documento CENTENO AI", max_length=200)
+    contenido: str = Field(..., min_length=1, max_length=25000)
+    nombre_archivo: str = Field(default="centeno-ai-documento.pdf", max_length=120)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -615,50 +632,29 @@ def normalizar_texto_intencion(texto: str) -> str:
     texto = (texto or "").lower().strip()
 
     reemplazos = {
-        "á": "a",
-        "é": "e",
-        "í": "i",
-        "ó": "o",
-        "ú": "u",
-        "ü": "u",
+        "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u",
+        "à": "a", "è": "e", "ì": "i", "ò": "o", "ù": "u",
+        "ä": "a", "ë": "e", "ï": "i", "ö": "o", "ü": "u",
         "ñ": "n"
     }
 
     for original, nuevo in reemplazos.items():
         texto = texto.replace(original, nuevo)
 
-    while "  " in texto:
-        texto = texto.replace("  ", " ")
-
-    return texto
-
-
-def es_modo_imagen_forzado(tipo: str | None = None, modo: str | None = None) -> bool:
-    texto = normalizar_texto_intencion(f"{tipo or ''} {modo or ''}")
-
-    claves = [
-        "imagen",
-        "crear imagen",
-        "crea imagen",
-        "generar imagen",
-        "genera imagen",
-        "image",
-        "generate_image",
-        "create_image",
-        "chat_imagen",
-        "modo imagen",
-        "crear"
-    ]
-
-    return any(clave in texto for clave in claves)
+    texto = re.sub(r"\s+", " ", texto)
+    return texto.strip()
 
 
 def es_solicitud_imagen(texto: str) -> bool:
     texto_original = (texto or "").strip()
-    texto = normalizar_texto_intencion(texto_original)
+    texto_norm = normalizar_texto_intencion(texto_original)
 
-    if not texto:
+    if not texto_norm:
         return False
+
+    # Comandos o modo directo desde chat.
+    if texto_norm.startswith("/imagen"):
+        return True
 
     claves_directas = [
         "genera una imagen",
@@ -676,121 +672,83 @@ def es_solicitud_imagen(texto: str) -> bool:
         "haz una imagen",
         "hazme una imagen",
         "hacer una imagen",
-        "hazme imagen",
         "quiero una imagen",
         "quiero imagen",
         "necesito una imagen",
         "necesito imagen",
         "dame una imagen",
         "prepara una imagen",
-        "sacame una imagen",
+        "arma una imagen",
+        "realiza una imagen",
+        "produce una imagen",
         "dibuja",
         "dibujame",
         "dibujo de",
         "ilustra",
-        "ilustracion",
-        "disena",
-        "disenaje",
+        "ilustrame",
+        "ilustracion de",
+        "disena una imagen",
+        "disename una imagen",
         "diseno visual",
         "imagen de",
         "foto de",
         "crea foto",
         "genera foto",
         "hazme foto",
-        "quiero una foto",
-        "necesito una foto",
-        "crea un banner",
-        "hazme un banner",
-        "genera un banner",
-        "banner de",
-        "banner para",
-        "crea un logo",
-        "hazme un logo",
-        "genera un logo",
-        "logo de",
-        "logo para",
-        "crea una portada",
-        "hazme una portada",
-        "genera una portada",
-        "portada de",
-        "portada para",
-        "flyer",
-        "afiche",
-        "poster",
-        "miniatura",
-        "thumbnail",
+        "crear foto",
+        "generar foto",
         "imagen para tiktok",
         "imagen para whatsapp",
         "imagen para instagram",
         "imagen para facebook",
         "imagen empresarial",
         "imagen profesional",
-        "fotografia de",
-        "fotorealista",
-        "retrato de"
+        "foto profesional",
+        "portada para",
+        "banner para",
+        "logo para",
+        "flyer para",
+        "afiche para",
+        "poster para",
+        "miniatura para",
+        "thumbnail para"
     ]
 
-    if any(clave in texto for clave in claves_directas):
+    if any(clave in texto_norm for clave in claves_directas):
         return True
 
-    acciones = [
-        "haz",
-        "hazme",
-        "crea",
-        "creame",
-        "genera",
-        "generame",
-        "quiero",
-        "necesito",
-        "dame",
-        "prepara",
-        "disena",
-        "disename",
-        "realiza",
-        "produce",
-        "arma"
+    # Si el usuario toca "Crea una imagen" en Base44, a veces manda solo el prompt:
+    # "un gato astronauta", "banner para TikTok", "logo de mi empresa".
+    inicios_visuales = [
+        "banner ", "logo ", "portada ", "flyer ", "afiche ", "poster ",
+        "miniatura ", "thumbnail ", "dibujo ", "ilustracion ", "foto profesional "
     ]
+
+    if any(texto_norm.startswith(inicio) for inicio in inicios_visuales):
+        return True
 
     palabras_visuales = [
-        "imagen",
-        "foto",
-        "banner",
-        "logo",
-        "portada",
-        "poster",
-        "afiche",
-        "flyer",
-        "miniatura",
-        "thumbnail",
-        "dibujo",
-        "ilustracion",
-        "diseno",
-        "visual",
-        "retrato",
-        "wallpaper",
-        "fondo",
-        "sticker"
+        "imagen", "foto", "banner", "logo", "portada", "poster", "afiche",
+        "flyer", "miniatura", "thumbnail", "dibujo", "ilustracion", "diseno",
+        "visual", "grafico", "wallpaper", "fondo", "sticker"
     ]
 
-    if any(accion in texto for accion in acciones) and any(palabra in texto for palabra in palabras_visuales):
+    acciones = [
+        "haz", "hazme", "crea", "creame", "genera", "generame", "quiero",
+        "necesito", "dame", "prepara", "arma", "realiza", "produce", "disena",
+        "disename", "convierte", "transforma"
+    ]
+
+    if any(a in texto_norm for a in acciones) and any(p in texto_norm for p in palabras_visuales):
         return True
 
-    # Si el mensaje es muy corto pero contiene una pieza visual clara, también tratarlo como imagen.
-    # Ejemplo: "banner para TikTok de un perrito", "logo de mi empresa".
-    palabras_fuertes = [
-        "banner",
-        "logo",
-        "portada",
-        "flyer",
-        "afiche",
-        "poster",
-        "miniatura",
-        "thumbnail",
-        "wallpaper",
-        "sticker"
-    ]
+    # Frases típicas de usuario después de presionar el botón imagen.
+    if ("para tiktok" in texto_norm or "para whatsapp" in texto_norm or "para instagram" in texto_norm) and any(
+        p in texto_norm for p in ["banner", "portada", "imagen", "foto", "miniatura", "logo", "afiche"]
+    ):
+        return True
 
-    return any(palabra in texto for palabra in palabras_fuertes)
+    return False
 
 
 def limpiar_prompt_visual(texto: str) -> str:
@@ -799,64 +757,80 @@ def limpiar_prompt_visual(texto: str) -> str:
     if not texto_original:
         return ""
 
-    texto_normalizado = normalizar_texto_intencion(texto_original)
+    texto_limpio = texto_original
 
-    frases = [
+    frases_inicio = [
+        "/imagen",
         "genera una imagen de",
         "generar una imagen de",
+        "genera una imagen",
+        "generar una imagen",
         "genera imagen de",
         "generar imagen de",
+        "genera imagen",
+        "generar imagen",
+        "genérame una imagen de",
         "generame una imagen de",
+        "generame una imagen",
+        "genérame imagen de",
         "generame imagen de",
         "crea una imagen de",
         "crear una imagen de",
+        "crea una imagen",
+        "crear una imagen",
         "crea imagen de",
         "crear imagen de",
+        "crea imagen",
+        "crear imagen",
+        "créame una imagen de",
         "creame una imagen de",
-        "creame imagen de",
+        "creame una imagen",
         "haz una imagen de",
         "hazme una imagen de",
+        "haz una imagen",
+        "hazme una imagen",
         "hacer una imagen de",
-        "hazme imagen de",
+        "hacer una imagen",
         "quiero una imagen de",
+        "quiero una imagen",
         "necesito una imagen de",
+        "necesito una imagen",
         "dame una imagen de",
+        "dame una imagen",
         "prepara una imagen de",
+        "prepara una imagen",
+        "dibuja",
+        "dibújame",
+        "dibujame",
+        "ilustra",
+        "ilústrame",
+        "ilustrame",
+        "diseña una imagen de",
+        "diseña una imagen",
+        "disena una imagen de",
+        "disena una imagen",
         "imagen de",
         "foto de",
         "crea foto de",
+        "crear foto de",
         "genera foto de",
-        "hazme foto de",
-        "dibuja",
-        "dibujame",
-        "ilustra",
-        "ilustrame",
-        "disena",
-        "disename"
+        "generar foto de",
+        "hazme foto de"
     ]
 
-    texto_limpio = texto_original
-
-    for frase in frases:
-        # Intento normal: borrar frase si aparece igual.
-        for variante in [frase, frase.capitalize(), frase.upper()]:
-            if texto_limpio.lower().startswith(variante.lower()):
-                texto_limpio = texto_limpio[len(variante):].strip()
-                break
-
-    # Limpieza extra usando el texto normalizado para frases con tildes o errores menores.
-    texto_limpio_normal = normalizar_texto_intencion(texto_limpio)
-    for frase in frases:
-        if texto_limpio_normal.startswith(frase):
-            texto_limpio = texto_limpio[len(frase):].strip()
-            break
+    for frase in frases_inicio:
+        patron = r"^\s*" + re.escape(frase) + r"\s*"
+        texto_limpio = re.sub(patron, "", texto_limpio, count=1, flags=re.IGNORECASE)
 
     texto_limpio = texto_limpio.strip(" :,-.\n\t")
 
+    # Si Base44 manda solo "Crea una imagen" o quedó vacío, usa el texto original limpio
+    # para evitar respuesta vacía y mantener generación segura.
     if not texto_limpio:
-        return texto_original.strip(" :,-.\n\t")
+        texto_limpio = texto_original.strip(" :,-.\n\t")
 
     return texto_limpio
+
 
 def mejorar_prompt_visual(prompt: str) -> str:
     prompt = (prompt or "").strip()
@@ -920,8 +894,8 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
 
     usar_imagen_avanzada = plan_permite_imagen_avanzada(plan_actual, es_admin)
 
-    # El límite gratuito solo debe aplicarse a usuarios realmente gratis.
-    # Antes se aplicaba antes de distinguir planes y podía bloquear el Chat IA.
+    # El límite gratuito solo se aplica al plan gratis.
+    # Pro, Premium y administradores no deben bloquearse por el contador gratis.
     if plan_actual == "gratis" and not es_admin:
         permiso_imagen = controlar_imagen_gratis(email)
 
@@ -950,18 +924,15 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
         url_imagen, error = generar_imagen_openai(prompt, ancho=ancho, alto=alto, modelo=modelo_img)
 
         if error:
-            return {
-                "ok": False,
-                "api": "imagen",
-                "app": APP_NAME,
-                "mensaje": error,
-                "codigo": "imagen_avanzada_error"
-            }
+            # Respaldo: si la imagen avanzada está ocupada, el Chat IA igual devuelve imagen
+            # para que la experiencia no se corte.
+            url_imagen = crear_url_pollinations(prompt, ancho, alto)
+            tipo_imagen = "imagen_respaldo"
+        else:
+            if not es_admin:
+                registrar_credito_ia(email, plan_usuario)
 
-        if not es_admin:
-            registrar_credito_ia(email, plan_usuario)
-
-        tipo_imagen = "imagen_avanzada"
+            tipo_imagen = "imagen_avanzada"
     else:
         url_imagen = crear_url_pollinations(prompt, ancho, alto)
         tipo_imagen = "imagen_basica"
@@ -1085,7 +1056,7 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
         }
 
 
-def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: int = 768, forzar_imagen: bool = False, tipo: str | None = None, modo: str | None = None):
+def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: int = 768, forzar_imagen: bool = False):
     email = limpiar_email(email)
     mensaje = (mensaje or "").strip()
 
@@ -1096,9 +1067,8 @@ def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: i
             "codigo": "mensaje_vacio"
         }
 
-    if forzar_imagen or es_modo_imagen_forzado(tipo=tipo, modo=modo) or es_solicitud_imagen(mensaje):
+    if forzar_imagen or es_solicitud_imagen(mensaje):
         prompt_visual = limpiar_prompt_visual(mensaje)
-
 
         if not prompt_visual:
             return {
@@ -1309,6 +1279,420 @@ def generar_voz_premium(email: str, texto: str):
 
         return respuesta_error
 
+
+
+def extension_por_tipo_imagen(content_type: str) -> str:
+    content_type = (content_type or "").lower().strip()
+
+    if "png" in content_type:
+        return ".png"
+    if "webp" in content_type:
+        return ".webp"
+    if "jpeg" in content_type or "jpg" in content_type:
+        return ".jpg"
+
+    return ".png"
+
+
+def preparar_imagen_temporal_para_edicion(image_url: str | None = None, imagen_base64: str | None = None):
+    entrada = (imagen_base64 or image_url or "").strip()
+
+    if not entrada:
+        return None, "imagen_vacia"
+
+    contenido = b""
+    content_type = "image/png"
+
+    try:
+        if entrada.startswith("data:image/"):
+            cabecera, b64_data = entrada.split(",", 1)
+            content_type = cabecera.replace("data:", "").split(";")[0].strip() or "image/png"
+            contenido = base64.b64decode(b64_data)
+
+        elif entrada.startswith(("http://", "https://")):
+            response = requests.get(
+                entrada,
+                timeout=60,
+                headers={
+                    "User-Agent": "CENTENO-AI/1.0",
+                    "Accept": "image/png,image/jpeg,image/webp,image/*,*/*"
+                },
+                allow_redirects=True
+            )
+
+            if response.status_code != 200:
+                return None, "imagen_no_descargada"
+
+            content_type = response.headers.get("content-type", "image/png").split(";")[0].strip().lower()
+            contenido = response.content or b""
+
+        else:
+            # Respaldo para base64 puro sin cabecera data:image.
+            contenido = base64.b64decode(entrada)
+            content_type = "image/png"
+
+        if not contenido or len(contenido) < 20:
+            return None, "imagen_vacia"
+
+        if len(contenido) > 20 * 1024 * 1024:
+            return None, "imagen_muy_grande"
+
+        if not content_type.startswith("image/"):
+            if contenido[:3] == b"\xff\xd8\xff":
+                content_type = "image/jpeg"
+            elif contenido[:8] == b"\x89PNG\r\n\x1a\n":
+                content_type = "image/png"
+            elif contenido[:4] == b"RIFF":
+                content_type = "image/webp"
+            else:
+                return None, "archivo_no_es_imagen"
+
+        suffix = extension_por_tipo_imagen(content_type)
+
+        archivo = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        archivo.write(contenido)
+        archivo.flush()
+        archivo.close()
+
+        return archivo.name, None
+
+    except Exception as error:
+        return None, str(error)[:300]
+
+
+def mejorar_prompt_edicion_imagen(mensaje: str) -> str:
+    mensaje = (mensaje or "").strip()
+
+    if not mensaje:
+        mensaje = "Mejora esta imagen de forma profesional."
+
+    return (
+        f"Edita la imagen siguiendo esta instrucción: {mensaje}. "
+        "Mantén una apariencia profesional, natural y de alta calidad. "
+        "Conserva los elementos importantes de la imagen original cuando corresponda. "
+        "No agregues texto mal escrito ni marcas externas. "
+        "El resultado debe verse limpio, elegante y listo para uso comercial o redes sociales."
+    )
+
+
+def editar_imagen_con_ia(
+    email: str,
+    mensaje: str,
+    image_url: str | None = None,
+    imagen_base64: str | None = None,
+    ancho: int = 768,
+    alto: int = 768
+):
+    email = limpiar_email(email)
+    mensaje = (mensaje or "").strip()
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    if not plan_permite_imagen_avanzada(plan_actual, es_admin):
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "La edición de imágenes está disponible en los planes Pro y Premium.",
+            "codigo": "plan_no_permite_edicion"
+        }
+
+    permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
+
+    if not permitido and not es_admin:
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": mensaje_creditos,
+            "codigo": "limite_creditos"
+        }
+
+    if not openai_client:
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "La edición de imágenes no está disponible por el momento.",
+            "codigo": "ia_no_configurada"
+        }
+
+    ruta_temporal, error_imagen = preparar_imagen_temporal_para_edicion(
+        image_url=image_url,
+        imagen_base64=imagen_base64
+    )
+
+    if not ruta_temporal:
+        return {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "Primero adjunta una imagen válida para poder editarla.",
+            "codigo": "imagen_no_preparada",
+            "detalle_admin": error_imagen if es_admin else None
+        }
+
+    try:
+        prompt_final = mejorar_prompt_edicion_imagen(mensaje)
+
+        try:
+            with open(ruta_temporal, "rb") as imagen_archivo:
+                respuesta = openai_client.images.edit(
+                    model=IA_EDIT_IMAGE_MODEL,
+                    image=imagen_archivo,
+                    prompt=prompt_final,
+                    size="1024x1024"
+                )
+        except TypeError:
+            # Respaldo para versiones de librería que esperan una lista de imágenes.
+            with open(ruta_temporal, "rb") as imagen_archivo:
+                respuesta = openai_client.images.edit(
+                    model=IA_EDIT_IMAGE_MODEL,
+                    image=[imagen_archivo],
+                    prompt=prompt_final,
+                    size="1024x1024"
+                )
+
+        item = respuesta.data[0]
+
+        if getattr(item, "b64_json", None):
+            imagen_editada_url = f"data:image/png;base64,{item.b64_json}"
+        elif getattr(item, "url", None):
+            imagen_editada_url = item.url
+        else:
+            return {
+                "ok": False,
+                "api": "editar-imagen",
+                "mensaje": "No se pudo cargar la imagen editada. Intenta nuevamente.",
+                "codigo": "imagen_editada_vacia"
+            }
+
+        if not es_admin:
+            registrar_credito_ia(email, plan_usuario)
+
+        guardar_historial_supabase(
+            email=email,
+            tipo="imagen",
+            entrada=f"Edición de imagen: {mensaje}",
+            respuesta=f"Imagen editada por {APP_NAME}",
+            imagen_url=imagen_editada_url,
+            plan=plan_actual
+        )
+
+        return {
+            "ok": True,
+            "api": "editar-imagen",
+            "app": APP_NAME,
+            "empresa": EMPRESA,
+            "ceo": CEO,
+            "tipo": "imagen",
+            "plan": plan_actual,
+            "mensaje": f"Imagen editada por {APP_NAME}.",
+            "respuesta": f"Imagen editada por {APP_NAME}.",
+            "url": imagen_editada_url,
+            "image_url": imagen_editada_url,
+            "imagen_url": imagen_editada_url
+        }
+
+    except Exception as error:
+        respuesta_error = {
+            "ok": False,
+            "api": "editar-imagen",
+            "mensaje": "No se pudo editar la imagen en este momento. Intenta nuevamente.",
+            "codigo": "editar_imagen_error"
+        }
+
+        if es_admin:
+            respuesta_error["debug_admin"] = str(error)[:1000]
+            respuesta_error["modelo_imagen"] = IA_EDIT_IMAGE_MODEL
+
+        return respuesta_error
+
+    finally:
+        try:
+            if ruta_temporal and os.path.exists(ruta_temporal):
+                os.remove(ruta_temporal)
+        except Exception:
+            pass
+
+
+def limpiar_nombre_archivo_pdf(nombre: str) -> str:
+    nombre = (nombre or "centeno-ai-documento.pdf").strip()
+
+    for caracter in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+        nombre = nombre.replace(caracter, '-')
+
+    if not nombre.lower().endswith(".pdf"):
+        nombre += ".pdf"
+
+    return nombre[:120] or "centeno-ai-documento.pdf"
+
+
+def limpiar_texto_pdf(texto: str) -> str:
+    texto = limpiar_respuesta_marca(texto or "")
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n")
+    texto = texto.replace("\t", "    ")
+    texto = texto.replace("•", "-")
+    return texto.strip()
+
+
+def pdf_escape(texto: str) -> str:
+    texto = (texto or "").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return texto
+
+
+def construir_pdf_simple_bytes(titulo: str, contenido: str) -> bytes:
+    titulo = limpiar_texto_pdf(titulo or "Documento CENTENO AI")[:160]
+    contenido = limpiar_texto_pdf(contenido)
+
+    lineas = []
+    lineas.append(titulo)
+    lineas.append("")
+
+    for parrafo in contenido.split("\n"):
+        parrafo = parrafo.strip()
+
+        if not parrafo:
+            lineas.append("")
+            continue
+
+        lineas.extend(textwrap.wrap(parrafo, width=88, break_long_words=False, replace_whitespace=False))
+
+    if not lineas:
+        lineas = [titulo, "", "Documento generado por CENTENO AI."]
+
+    lineas_por_pagina = 48
+    paginas = [lineas[i:i + lineas_por_pagina] for i in range(0, len(lineas), lineas_por_pagina)]
+
+    objetos = []
+
+    def agregar_objeto(contenido_objeto: bytes) -> int:
+        objetos.append(contenido_objeto)
+        return len(objetos)
+
+    catalog_id = agregar_objeto(b"<< /Type /Catalog /Pages 2 0 R >>")
+    pages_id = agregar_objeto(b"")
+    font_id = agregar_objeto(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+
+    page_ids = []
+
+    for pagina in paginas:
+        comandos = ["BT", "/F1 12 Tf", "50 790 Td", "15 TL"]
+
+        primera = True
+        for linea in pagina:
+            linea_segura = pdf_escape(linea)
+            if primera:
+                comandos.append(f"({linea_segura}) Tj")
+                primera = False
+            else:
+                comandos.append(f"T* ({linea_segura}) Tj")
+
+        comandos.append("ET")
+        stream_texto = "\n".join(comandos)
+        stream_bytes = stream_texto.encode("latin-1", errors="replace")
+        contenido_stream = (
+            f"<< /Length {len(stream_bytes)} >>\nstream\n".encode("latin-1") +
+            stream_bytes +
+            b"\nendstream"
+        )
+
+        content_id = agregar_objeto(contenido_stream)
+        page_id = agregar_objeto(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> "
+            f"/Contents {content_id} 0 R >>".encode("latin-1")
+        )
+        page_ids.append(page_id)
+
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objetos[pages_id - 1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>".encode("latin-1")
+
+    salida = bytearray()
+    salida.extend(b"%PDF-1.4\n% CENTENO AI\n")
+
+    offsets = [0]
+
+    for numero, contenido_objeto in enumerate(objetos, start=1):
+        offsets.append(len(salida))
+        salida.extend(f"{numero} 0 obj\n".encode("latin-1"))
+        salida.extend(contenido_objeto)
+        salida.extend(b"\nendobj\n")
+
+    xref_offset = len(salida)
+    salida.extend(f"xref\n0 {len(objetos) + 1}\n".encode("latin-1"))
+    salida.extend(b"0000000000 65535 f \n")
+
+    for offset in offsets[1:]:
+        salida.extend(f"{offset:010d} 00000 n \n".encode("latin-1"))
+
+    salida.extend(
+        f"trailer\n<< /Size {len(objetos) + 1} /Root {catalog_id} 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF".encode("latin-1")
+    )
+
+    return bytes(salida)
+
+
+def crear_pdf_con_ia(email: str, titulo: str, contenido: str, nombre_archivo: str):
+    email = limpiar_email(email)
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "premium"
+
+    if not es_admin and not plan_app_activo(plan_usuario):
+        return {
+            "ok": False,
+            "api": "crear-pdf",
+            "mensaje": "La creación de PDF está disponible en los planes Básico, Pro y Premium.",
+            "codigo": "plan_no_permite_pdf"
+        }
+
+    try:
+        nombre_final = limpiar_nombre_archivo_pdf(nombre_archivo)
+        pdf_bytes = construir_pdf_simple_bytes(titulo, contenido)
+        pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+        pdf_url = f"data:application/pdf;base64,{pdf_b64}"
+
+        guardar_historial_supabase(
+            email=email,
+            tipo="documento",
+            entrada=titulo,
+            respuesta=f"PDF creado por {APP_NAME}: {nombre_final}",
+            imagen_url=None,
+            plan=plan_actual
+        )
+
+        return {
+            "ok": True,
+            "api": "crear-pdf",
+            "app": APP_NAME,
+            "empresa": EMPRESA,
+            "ceo": CEO,
+            "tipo": "documento",
+            "plan": plan_actual,
+            "nombre_archivo": nombre_final,
+            "pdf_url": pdf_url,
+            "url": pdf_url,
+            "mensaje": "PDF creado por CENTENO AI."
+        }
+
+    except Exception as error:
+        respuesta_error = {
+            "ok": False,
+            "api": "crear-pdf",
+            "mensaje": "No se pudo crear el PDF en este momento. Intenta nuevamente.",
+            "codigo": "crear_pdf_error"
+        }
+
+        if es_admin:
+            respuesta_error["debug_admin"] = str(error)[:1000]
+
+        return respuesta_error
 
 def cargar_usuarios():
     if not os.path.exists(USUARIOS_FILE):
@@ -1746,9 +2130,10 @@ def home():
             "/api/texto-app",
             "/api/imagen",
             "/api/chat-unificado",
-            "/api/chat-imagen",
             "/api/analizar-imagen",
+            "/api/editar-imagen",
             "/api/voz-premium",
+            "/api/crear-pdf",
             "/api/google-play/activar-plan",
             "/telegram/webhook",
             "/telegram/set-webhook",
@@ -1948,15 +2333,18 @@ def api_texto(data: TextoRequest, x_api_key: str | None = Header(default=None)):
 
 
 @app.get("/api/texto-app")
-def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gratis"):
+def api_texto_app(mensaje: str, email: str = "usuario@app.com", plan: str = "gratis", forzar_imagen: bool = False, modo: str | None = None):
     if not mensaje or not mensaje.strip():
         raise HTTPException(status_code=400, detail="Mensaje vacío")
+
+    modo_limpio = (modo or "").lower().strip()
 
     return responder_chat_unificado(
         email=email,
         mensaje=mensaje,
         ancho=768,
-        alto=768
+        alto=768,
+        forzar_imagen=forzar_imagen or modo_limpio in ["imagen", "image", "crear_imagen", "generar_imagen"]
     )
 
 
@@ -1978,24 +2366,6 @@ def api_imagen(
     return resultado
 
 
-@app.post("/api/chat-imagen")
-def api_chat_imagen(
-    data: ChatUnificadoRequest,
-    x_api_key: str | None = Header(default=None)
-):
-    verificar_api_key(x_api_key)
-
-    return responder_chat_unificado(
-        email=data.email,
-        mensaje=data.mensaje,
-        ancho=data.ancho,
-        alto=data.alto,
-        forzar_imagen=True,
-        tipo="imagen",
-        modo="crear_imagen"
-    )
-
-
 @app.post("/api/chat-unificado")
 def api_chat_unificado(
     data: ChatUnificadoRequest,
@@ -2003,14 +2373,15 @@ def api_chat_unificado(
 ):
     verificar_api_key(x_api_key)
 
+    modo_limpio = (data.modo or "").lower().strip()
+    forzar_imagen = data.forzar_imagen or modo_limpio in ["imagen", "image", "crear_imagen", "generar_imagen"]
+
     return responder_chat_unificado(
         email=data.email,
         mensaje=data.mensaje,
         ancho=data.ancho,
         alto=data.alto,
-        forzar_imagen=data.forzar_imagen,
-        tipo=data.tipo,
-        modo=data.modo
+        forzar_imagen=forzar_imagen
     )
 
 
@@ -2028,6 +2399,23 @@ def api_analizar_imagen(
     )
 
 
+@app.post("/api/editar-imagen")
+def api_editar_imagen(
+    data: EditarImagenRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return editar_imagen_con_ia(
+        email=data.email,
+        mensaje=data.mensaje,
+        image_url=data.image_url,
+        imagen_base64=data.imagen_base64,
+        ancho=data.ancho,
+        alto=data.alto
+    )
+
+
 @app.post("/api/voz-premium")
 def api_voz_premium(
     data: VozPremiumRequest,
@@ -2038,6 +2426,21 @@ def api_voz_premium(
     return generar_voz_premium(
         email=data.email,
         texto=data.texto
+    )
+
+
+@app.post("/api/crear-pdf")
+def api_crear_pdf(
+    data: CrearPdfRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return crear_pdf_con_ia(
+        email=data.email,
+        titulo=data.titulo,
+        contenido=data.contenido,
+        nombre_archivo=data.nombre_archivo
     )
 
 
