@@ -561,9 +561,12 @@ def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False
         return "CENTENO AI no pudo completar esta respuesta en este momento. Intenta nuevamente."
 
     try:
-        respuesta = openai_client.chat.completions.create(
-            model=modelo,
-            messages=[
+        modelo_lower = (modelo or "").lower().strip()
+        limite_salida = max_tokens_por_plan(plan_actual, es_admin)
+
+        parametros = {
+            "model": modelo,
+            "messages": [
                 {
                     "role": "system",
                     "content": PROMPT_CENTENO_AI
@@ -572,12 +575,29 @@ def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False
                     "role": "user",
                     "content": mensaje
                 }
-            ],
-            temperature=0.7,
-            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
-        )
+            ]
+        }
 
-        texto = respuesta.choices[0].message.content.strip()
+        if (
+            modelo_lower.startswith("gpt-5")
+            or modelo_lower.startswith("gpt-5.5")
+            or modelo_lower.startswith("o1")
+            or modelo_lower.startswith("o3")
+            or modelo_lower.startswith("o4")
+        ):
+            parametros["max_completion_tokens"] = limite_salida
+        else:
+            parametros["temperature"] = 0.7
+            parametros["max_tokens"] = limite_salida
+
+        respuesta = openai_client.chat.completions.create(**parametros)
+
+        texto = respuesta.choices[0].message.content
+
+        if not texto:
+            return "CENTENO AI no pudo completar esta respuesta en este momento. Intenta nuevamente."
+
+        texto = texto.strip()
         return limpiar_respuesta_marca(texto)
 
     except Exception as error:
