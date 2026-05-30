@@ -63,7 +63,6 @@ IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
 
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
-IA_EDIT_IMAGE_MODEL = os.getenv("IA_EDIT_IMAGE_MODEL", "gpt-image-1")
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -235,16 +234,8 @@ class ChatUnificadoRequest(BaseModel):
 
 class AnalizarImagenRequest(BaseModel):
     email: str = "usuario@app.com"
-    image_url: str = Field(..., min_length=5, max_length=3000000)
+    image_url: str = Field(..., min_length=5, max_length=3000)
     pregunta: str = Field(default="Analiza esta imagen de forma clara y profesional.", max_length=1500)
-
-
-class EditarImagenRequest(BaseModel):
-    email: str = "usuario@app.com"
-    image_url: str = Field(..., min_length=5, max_length=3000000)
-    instruccion: str = Field(..., min_length=3, max_length=1500)
-    ancho: int = Field(default=1024, ge=256, le=1024)
-    alto: int = Field(default=1024, ge=256, le=1024)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -387,13 +378,14 @@ def obtener_plan_app_seguro(email: str):
     if es_dueno(email):
         return {
             "email": email,
-            "plan_actual": "premium",
+            "plan_actual": "ilimitado",
             "estado_plan": "activo",
             "es_admin": True,
             "creditos_mes": 999999,
             "creditos_usados_mes": 0,
             "creditos_dia": 999999,
-            "creditos_usados_hoy": 0
+            "creditos_usados_hoy": 0,
+            "modelo_permitido": "ia_premium"
         }
 
     try:
@@ -553,13 +545,20 @@ def registrar_credito_ia(email: str, plan_usuario: dict):
 
 
 def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False) -> str:
+    mensaje = (mensaje or "").strip()
+
+    if not mensaje:
+        return "Escribe un mensaje para ayudarte."
+
     if not openai_client:
-        return "La IA avanzada no está disponible por el momento. Intenta nuevamente en unos minutos."
+        print("[CENTENO_AI][IA_AVANZADA] OPENAI_API_KEY no configurada en Render.")
+        return "CENTENO AI no pudo completar esta respuesta en este momento. Revisa la configuración de IA avanzada e intenta nuevamente."
 
     modelo = modelo_ia_por_plan(plan_actual, es_admin)
 
     if not modelo:
-        return ""
+        print(f"[CENTENO_AI][IA_AVANZADA] Modelo no definido para plan={plan_actual}, es_admin={es_admin}")
+        return "CENTENO AI no pudo completar esta respuesta en este momento. Intenta nuevamente."
 
     try:
         respuesta = openai_client.chat.completions.create(
@@ -581,9 +580,9 @@ def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False
         texto = respuesta.choices[0].message.content.strip()
         return limpiar_respuesta_marca(texto)
 
-    except Exception:
-        return "La IA avanzada está ocupada por el momento. Intenta nuevamente en unos minutos."
-
+    except Exception as error:
+        print(f"[CENTENO_AI][IA_AVANZADA_ERROR] plan={plan_actual} es_admin={es_admin} modelo={modelo} error={repr(error)}")
+        return "CENTENO AI no pudo completar esta respuesta en este momento. Intenta nuevamente."
 
 def plan_permite_imagen_avanzada(plan_actual: str, es_admin: bool = False) -> bool:
     if es_admin:
@@ -600,219 +599,6 @@ def plan_permite_analizar_imagen(plan_actual: str, es_admin: bool = False) -> bo
     plan = (plan_actual or "gratis").lower().strip()
     return plan in ["pro", "premium"]
 
-
-
-
-def plan_permite_editar_imagen(plan_actual: str, es_admin: bool = False) -> bool:
-    if es_admin:
-        return True
-
-    plan = (plan_actual or "gratis").lower().strip()
-    return plan in ["pro", "premium"]
-
-
-def normalizar_image_url(image_url: str) -> str:
-    image_url = (image_url or "").strip()
-
-    if not image_url:
-        return ""
-
-    if image_url.startswith("data:image"):
-        return image_url
-
-    if image_url.startswith("http://") or image_url.startswith("https://"):
-        return image_url
-
-    if len(image_url) > 100 and not image_url.startswith("data:"):
-        return f"data:image/png;base64,{image_url}"
-
-    return image_url
-
-
-def extraer_texto_responses_api(data: dict) -> str:
-    if not data:
-        return ""
-
-    output_text = data.get("output_text")
-    if output_text:
-        return str(output_text).strip()
-
-    output = data.get("output", [])
-    partes = []
-
-    for item in output:
-        for content in item.get("content", []):
-            if content.get("type") in ["output_text", "text"]:
-                texto = content.get("text") or content.get("value") or ""
-                if texto:
-                    partes.append(str(texto).strip())
-
-    return "\n".join([p for p in partes if p]).strip()
-
-
-def obtener_imagen_bytes(image_url: str):
-    image_url = normalizar_image_url(image_url)
-
-    if not image_url:
-        raise ValueError("Imagen vacía")
-
-    if image_url.startswith("data:image"):
-        header, b64data = image_url.split(",", 1)
-        mime = header.split(";")[0].replace("data:", "").strip() or "image/png"
-        extension = mime.split("/")[-1].split("+")[0] or "png"
-        image_bytes = base64.b64decode(b64data)
-        return image_bytes, mime, f"imagen.{extension}"
-
-    response = requests.get(image_url, timeout=120)
-    response.raise_for_status()
-    mime = response.headers.get("Content-Type", "image/png").split(";")[0].strip() or "image/png"
-    extension = mime.split("/")[-1].split("+")[0] or "png"
-    return response.content, mime, f"imagen.{extension}"
-
-
-def editar_imagen_con_ia(email: str, image_url: str, instruccion: str, ancho: int = 1024, alto: int = 1024):
-    email = limpiar_email(email)
-    instruccion = (instruccion or "").strip()
-    image_url = normalizar_image_url(image_url)
-
-    if not image_url:
-        return {
-            "ok": False,
-            "mensaje": "Debes enviar una imagen para editar.",
-            "codigo": "imagen_vacia"
-        }
-
-    if not instruccion:
-        return {
-            "ok": False,
-            "mensaje": "Describe qué cambio quieres hacer en la imagen.",
-            "codigo": "instruccion_vacia"
-        }
-
-    plan_usuario = obtener_plan_app_seguro(email)
-    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
-    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
-
-    if es_admin:
-        plan_actual = "premium"
-
-    if not plan_permite_editar_imagen(plan_actual, es_admin):
-        return {
-            "ok": False,
-            "mensaje": "La edición de imágenes está disponible en los planes Pro y Premium.",
-            "codigo": "plan_no_permite_edicion"
-        }
-
-    permitido, mensaje_creditos = verificar_creditos_ia(plan_usuario)
-
-    if not permitido and not es_admin:
-        return {
-            "ok": False,
-            "mensaje": mensaje_creditos,
-            "codigo": "limite_creditos"
-        }
-
-    if not OPENAI_API_KEY:
-        return {
-            "ok": False,
-            "mensaje": "La edición de imágenes no está disponible por el momento.",
-            "codigo": "ia_no_configurada"
-        }
-
-    try:
-        image_bytes, mime, filename = obtener_imagen_bytes(image_url)
-
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}"
-        }
-
-        files = {
-            "image": (filename, image_bytes, mime)
-        }
-
-        data = {
-            "model": IA_EDIT_IMAGE_MODEL,
-            "prompt": (
-                f"{instruccion}. "
-                "Mantén la coherencia visual, alta calidad, buen acabado, "
-                "rostros limpios, proporciones correctas y resultado profesional."
-            ),
-            "size": "1024x1024"
-        }
-
-        response = requests.post(
-            "https://api.openai.com/v1/images/edits",
-            headers=headers,
-            data=data,
-            files=files,
-            timeout=180
-        )
-
-        if response.status_code not in [200, 201]:
-            return {
-                "ok": False,
-                "mensaje": "No se pudo editar la imagen en este momento. Intenta nuevamente.",
-                "codigo": "edicion_error",
-                "detalle": response.text
-            }
-
-        payload = response.json()
-        data_items = payload.get("data", [])
-
-        if not data_items:
-            return {
-                "ok": False,
-                "mensaje": "No se recibió una imagen editada. Intenta nuevamente.",
-                "codigo": "sin_resultado_edicion"
-            }
-
-        item = data_items[0]
-
-        if item.get("b64_json"):
-            imagen_editada = f"data:image/png;base64,{item['b64_json']}"
-        elif item.get("url"):
-            imagen_editada = item.get("url")
-        else:
-            return {
-                "ok": False,
-                "mensaje": "No se pudo procesar la imagen editada. Intenta nuevamente.",
-                "codigo": "edicion_sin_url"
-            }
-
-        if not es_admin:
-            registrar_credito_ia(email, plan_usuario)
-
-        guardar_historial_supabase(
-            email=email,
-            tipo="imagen",
-            entrada=f"Editar imagen: {instruccion}",
-            respuesta=f"Imagen editada por {APP_NAME}",
-            imagen_url=imagen_editada,
-            plan=plan_actual
-        )
-
-        return {
-            "ok": True,
-            "api": "editar-imagen",
-            "app": APP_NAME,
-            "empresa": EMPRESA,
-            "ceo": CEO,
-            "tipo": "imagen",
-            "plan": plan_actual,
-            "respuesta": f"Imagen editada por {APP_NAME}",
-            "mensaje": f"Imagen editada por {APP_NAME}",
-            "instruccion": instruccion,
-            "url": imagen_editada,
-            "image_url": imagen_editada,
-            "imagen_url": imagen_editada
-        }
-
-    except Exception:
-        return {
-            "ok": False,
-            "mensaje": "No se pudo editar la imagen en este momento. Intenta nuevamente.",
-            "codigo": "edicion_error"
-        }
 
 def es_solicitud_imagen(texto: str) -> bool:
     texto = (texto or "").lower().strip()
@@ -928,7 +714,8 @@ def generar_imagen_openai(prompt: str, ancho: int = 1024, alto: int = 1024, mode
         return None, "No se pudo cargar la imagen generada. Intenta nuevamente."
 
     except Exception:
-        return None, "La generación de imágenes está ocupada por el momento. Intenta nuevamente en unos minutos."
+        print("[CENTENO_AI][IMAGEN_AVANZADA_ERROR] No se pudo generar imagen avanzada.")
+        return None, "No se pudo generar la imagen en este momento. Intenta nuevamente."
 
 
 def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int = 768):
@@ -947,7 +734,7 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
     es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
 
     if es_admin:
-        plan_actual = "premium"
+        plan_actual = "ilimitado"
 
     permiso_imagen = controlar_imagen_gratis(email)
 
@@ -1022,15 +809,12 @@ def generar_imagen_por_plan(email: str, prompt: str, ancho: int = 768, alto: int
 
 def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
     email = limpiar_email(email)
-    image_url = normalizar_image_url(image_url)
-    pregunta = (pregunta or "Analiza esta imagen de forma clara y profesional.").strip()
-
     plan_usuario = obtener_plan_app_seguro(email)
     plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
     es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
 
     if es_admin:
-        plan_actual = "premium"
+        plan_actual = "ilimitado"
 
     if not plan_permite_analizar_imagen(plan_actual, es_admin):
         return {
@@ -1048,7 +832,7 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
             "codigo": "limite_creditos"
         }
 
-    if not OPENAI_API_KEY:
+    if not openai_client:
         return {
             "ok": False,
             "mensaje": "El análisis de imágenes no está disponible por el momento.",
@@ -1058,62 +842,34 @@ def analizar_imagen_con_ia(email: str, image_url: str, pregunta: str):
     modelo = IA_MODEL_PREMIUM if plan_actual == "premium" or es_admin else IA_MODEL_PRO
 
     try:
-        payload = {
-            "model": modelo,
-            "input": [
+        respuesta = openai_client.chat.completions.create(
+            model=modelo,
+            messages=[
                 {
                     "role": "system",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": PROMPT_CENTENO_AI
-                        }
-                    ]
+                    "content": PROMPT_CENTENO_AI
                 },
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "input_text",
-                            "text": pregunta
+                            "type": "text",
+                            "text": pregunta or "Analiza esta imagen de forma clara y profesional."
                         },
                         {
-                            "type": "input_image",
-                            "image_url": image_url
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url
+                            }
                         }
                     ]
                 }
             ],
-            "max_output_tokens": max_tokens_por_plan(plan_actual, es_admin)
-        }
-
-        response = requests.post(
-            "https://api.openai.com/v1/responses",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=180
+            temperature=0.5,
+            max_tokens=max_tokens_por_plan(plan_actual, es_admin)
         )
 
-        if response.status_code not in [200, 201]:
-            return {
-                "ok": False,
-                "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente.",
-                "codigo": "analisis_error",
-                "detalle": response.text
-            }
-
-        respuesta_json = response.json()
-        texto = limpiar_respuesta_marca(extraer_texto_responses_api(respuesta_json))
-
-        if not texto:
-            return {
-                "ok": False,
-                "mensaje": "No se pudo analizar la imagen en este momento. Intenta nuevamente.",
-                "codigo": "analisis_vacio"
-            }
+        texto = limpiar_respuesta_marca(respuesta.choices[0].message.content.strip())
 
         if not es_admin:
             registrar_credito_ia(email, plan_usuario)
@@ -1183,7 +939,7 @@ def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: i
     es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
 
     if es_admin:
-        plan_actual = "premium"
+        plan_actual = "ilimitado"
 
     if es_pregunta_identidad(mensaje):
         respuesta = respuesta_identidad_oficial()
@@ -1670,7 +1426,6 @@ def home():
             "/api/imagen",
             "/api/chat-unificado",
             "/api/analizar-imagen",
-            "/api/editar-imagen",
             "/api/google-play/activar-plan",
             "/telegram/webhook",
             "/telegram/set-webhook",
@@ -1926,22 +1681,6 @@ def api_analizar_imagen(
         email=data.email,
         image_url=data.image_url,
         pregunta=data.pregunta
-    )
-
-
-@app.post("/api/editar-imagen")
-def api_editar_imagen(
-    data: EditarImagenRequest,
-    x_api_key: str | None = Header(default=None)
-):
-    verificar_api_key(x_api_key)
-
-    return editar_imagen_con_ia(
-        email=data.email,
-        image_url=data.image_url,
-        instruccion=data.instruccion,
-        ancho=data.ancho,
-        alto=data.alto
     )
 
 
