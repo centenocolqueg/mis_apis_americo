@@ -64,6 +64,15 @@ IA_MODEL_PREMIUM = os.getenv("IA_MODEL_PREMIUM", "gpt-4.1")
 IA_IMAGE_MODEL_PRO = os.getenv("IA_IMAGE_MODEL_PRO", "gpt-image-1")
 IA_IMAGE_MODEL_PREMIUM = os.getenv("IA_IMAGE_MODEL_PREMIUM", "gpt-image-1")
 
+IA_TTS_MODEL = os.getenv("IA_TTS_MODEL", "gpt-4o-mini-tts")
+IA_TTS_VOICE = os.getenv("IA_TTS_VOICE", "onyx")
+IA_TTS_FORMAT = os.getenv("IA_TTS_FORMAT", "mp3")
+
+try:
+    IA_TTS_SPEED = float(os.getenv("IA_TTS_SPEED", "0.90"))
+except Exception:
+    IA_TTS_SPEED = 0.90
+
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 OWNER_EMAILS = [
@@ -236,6 +245,11 @@ class AnalizarImagenRequest(BaseModel):
     email: str = "usuario@app.com"
     image_url: str = Field(..., min_length=5, max_length=3000)
     pregunta: str = Field(default="Analiza esta imagen de forma clara y profesional.", max_length=1500)
+
+
+class VozPremiumRequest(BaseModel):
+    email: str = "usuario@app.com"
+    texto: str = Field(..., min_length=1, max_length=4096)
 
 
 def verificar_api_key(x_api_key: str | None):
@@ -591,14 +605,12 @@ def responder_ia_avanzada(mensaje: str, plan_actual: str, es_admin: bool = False
             parametros["max_tokens"] = limite_salida
 
         respuesta = openai_client.chat.completions.create(**parametros)
-
         texto = respuesta.choices[0].message.content
 
         if not texto:
             return "CENTENO AI no pudo completar esta respuesta en este momento. Intenta nuevamente."
 
-        texto = texto.strip()
-        return limpiar_respuesta_marca(texto)
+        return limpiar_respuesta_marca(texto.strip())
 
     except Exception as error:
         print(f"[CENTENO_AI][IA_AVANZADA_ERROR] plan={plan_actual} es_admin={es_admin} modelo={modelo} error={repr(error)}")
@@ -1008,6 +1020,150 @@ def responder_chat_unificado(email: str, mensaje: str, ancho: int = 768, alto: i
         "respuesta": respuesta
     }
 
+
+
+def generar_voz_premium(email: str, texto: str):
+    email = limpiar_email(email)
+    texto = texto or ""
+
+    plan_usuario = obtener_plan_app_seguro(email)
+    plan_actual = (plan_usuario.get("plan_actual") or "gratis").lower().strip()
+    es_admin = bool(plan_usuario.get("es_admin", False)) or es_dueno(email)
+
+    if es_admin:
+        plan_actual = "ilimitado"
+
+    if not es_admin and not plan_app_activo(plan_usuario):
+        return {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "La voz premium está disponible en los planes Básico, Pro y Premium.",
+            "codigo": "plan_no_permite_voz"
+        }
+
+    if not openai_client:
+        return {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "La voz premium no está disponible por el momento.",
+            "codigo": "voz_no_configurada"
+        }
+
+    texto_limpio = limpiar_respuesta_marca(texto)
+    texto_limpio = " ".join(texto_limpio.split()).strip()
+
+    if not texto_limpio:
+        return {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "No hay texto para convertir en voz.",
+            "codigo": "texto_vacio"
+        }
+
+    if len(texto_limpio) > 4000:
+        texto_limpio = texto_limpio[:4000]
+
+    instrucciones_voz = (
+        "Habla en español latino con voz masculina, grave, elegante, cálida y profesional. "
+        "Debe sonar como un orador seguro, moderno y premium. "
+        "Mantén ritmo natural, buena pronunciación y tono de asistente empresarial."
+    )
+
+    try:
+        parametros = {
+            "model": IA_TTS_MODEL,
+            "voice": IA_TTS_VOICE,
+            "input": texto_limpio,
+            "response_format": IA_TTS_FORMAT,
+            "speed": IA_TTS_SPEED
+        }
+
+        if IA_TTS_MODEL not in ["tts-1", "tts-1-hd"]:
+            parametros["instructions"] = instrucciones_voz
+
+        try:
+            respuesta_audio = openai_client.audio.speech.create(**parametros)
+        except TypeError:
+            parametros.pop("instructions", None)
+            respuesta_audio = openai_client.audio.speech.create(**parametros)
+        except Exception as error_voz:
+            if "instructions" in parametros:
+                parametros.pop("instructions", None)
+                respuesta_audio = openai_client.audio.speech.create(**parametros)
+            else:
+                raise error_voz
+
+        audio_bytes = getattr(respuesta_audio, "content", None)
+
+        if callable(audio_bytes):
+            audio_bytes = audio_bytes()
+
+        if not audio_bytes and hasattr(respuesta_audio, "read"):
+            audio_bytes = respuesta_audio.read()
+
+        if not audio_bytes and isinstance(respuesta_audio, bytes):
+            audio_bytes = respuesta_audio
+
+        if not audio_bytes:
+            return {
+                "ok": False,
+                "api": "voz-premium",
+                "mensaje": "No se pudo generar la voz premium en este momento.",
+                "codigo": "audio_vacio"
+            }
+
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+        mime = "audio/mp3"
+        if IA_TTS_FORMAT == "wav":
+            mime = "audio/wav"
+        elif IA_TTS_FORMAT == "aac":
+            mime = "audio/aac"
+        elif IA_TTS_FORMAT == "opus":
+            mime = "audio/opus"
+        elif IA_TTS_FORMAT == "flac":
+            mime = "audio/flac"
+
+        audio_url = f"data:{mime};base64,{audio_b64}"
+
+        guardar_historial_supabase(
+            email=email,
+            tipo="voz",
+            entrada=texto_limpio[:500],
+            respuesta="Voz premium generada por CENTENO AI.",
+            imagen_url=None,
+            plan=plan_actual
+        )
+
+        return {
+            "ok": True,
+            "api": "voz-premium",
+            "app": APP_NAME,
+            "empresa": EMPRESA,
+            "ceo": CEO,
+            "plan": plan_actual,
+            "tipo_voz": "voz_premium",
+            "voice": IA_TTS_VOICE,
+            "format": IA_TTS_FORMAT,
+            "audio_url": audio_url,
+            "url": audio_url,
+            "mensaje": "Voz premium generada por CENTENO AI."
+        }
+
+    except Exception as error:
+        respuesta_error = {
+            "ok": False,
+            "api": "voz-premium",
+            "mensaje": "La voz premium no está disponible en este momento. Intenta nuevamente.",
+            "codigo": "voz_premium_error"
+        }
+
+        if es_admin:
+            respuesta_error["debug_admin"] = str(error)[:1000]
+            respuesta_error["modelo_voz"] = IA_TTS_MODEL
+            respuesta_error["voz"] = IA_TTS_VOICE
+
+        return respuesta_error
 
 def cargar_usuarios():
     if not os.path.exists(USUARIOS_FILE):
@@ -1446,6 +1602,7 @@ def home():
             "/api/imagen",
             "/api/chat-unificado",
             "/api/analizar-imagen",
+            "/api/voz-premium",
             "/api/google-play/activar-plan",
             "/telegram/webhook",
             "/telegram/set-webhook",
@@ -1701,6 +1858,19 @@ def api_analizar_imagen(
         email=data.email,
         image_url=data.image_url,
         pregunta=data.pregunta
+    )
+
+
+@app.post("/api/voz-premium")
+def api_voz_premium(
+    data: VozPremiumRequest,
+    x_api_key: str | None = Header(default=None)
+):
+    verificar_api_key(x_api_key)
+
+    return generar_voz_premium(
+        email=data.email,
+        texto=data.texto
     )
 
 
